@@ -34,6 +34,19 @@ export const api = {
   deleteCustomAgent: (id: string) =>
     fetchJson<{ message: string }>(`/custom-agents/${id}`, { method: 'DELETE' }),
 
+  // Agent capabilities
+  listCapabilities: () => fetchJson<{ capabilities: unknown[] }>('/agents/capabilities'),
+  getAgentCapabilities: (id: string) => fetchJson<{ capabilities: unknown }>(`/agents/${id}/capabilities`),
+
+  // Schedules
+  listSchedules: () => fetchJson<{ schedules: unknown[] }>('/schedules'),
+  createSchedule: (goal: string, interval: string) =>
+    fetchJson<{ schedule: unknown }>('/schedules', { method: 'POST', body: JSON.stringify({ goal, interval }) }),
+  updateSchedule: (id: string, data: { enabled?: boolean; goal?: string; interval?: string }) =>
+    fetchJson<{ message: string }>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteSchedule: (id: string) =>
+    fetchJson<{ message: string }>(`/schedules/${id}`, { method: 'DELETE' }),
+
   // Stock agents
   listStockAgents: () => fetchJson<{ total: number; categories: string[]; agents: unknown[] }>('/stock-agents'),
   syncStockRepos: () => fetchJson<{ message: string }>('/stock-agents/sync', { method: 'POST' }),

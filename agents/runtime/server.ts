@@ -1,10 +1,46 @@
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
-import type { AgentConfig } from './agent-config.js';
+import path from 'path';
+import type { AgentConfig, AgentCapabilitiesConfig } from './agent-config.js';
 import type { A2AAgentCard, A2ATaskRequest, A2ATaskResponse, A2ATaskStatus } from '../../shared/a2a.js';
 import { createTask, getTask, addTaskLog } from './task-store.js';
 import { executeTask } from './executor.js';
+
+/**
+ * Load capabilities from agent.config.json next to the agent's index.ts.
+ * Returns undefined if no config file exists (Tier 2/3 fallback behavior).
+ */
+function loadCapabilities(config: AgentConfig): AgentCapabilitiesConfig | undefined {
+  // agent.config.json lives alongside AGENT.md and index.ts
+  const agentDir = config.system_prompt_path
+    ? path.dirname(config.system_prompt_path)
+    : undefined;
+
+  if (!agentDir) return undefined;
+
+  const configPath = path.join(agentDir, 'agent.config.json');
+  if (!fs.existsSync(configPath)) return undefined;
+
+  const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+  // Resolve MCP config path
+  let mcpConfigPath: string | undefined;
+  const mcpJsonPath = path.join(agentDir, '.claude', 'mcp.json');
+  if (raw.mcpServers?.length > 0 && fs.existsSync(mcpJsonPath)) {
+    mcpConfigPath = mcpJsonPath;
+  }
+
+  return {
+    tier: raw.tier ?? 3,
+    tools: raw.tools ?? ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
+    mcpServers: raw.mcpServers ?? [],
+    mcpConfigPath,
+    canSpawnSubAgents: raw.canSpawnSubAgents ?? false,
+    maxTurns: raw.maxTurns ?? 25,
+    timeout: raw.timeout ?? 900_000,
+  };
+}
 
 /**
  * Start an A2A-compliant agent server.
@@ -21,6 +57,14 @@ export function startAgentServer(config: AgentConfig): void {
       console.error(`Failed to load system prompt from ${config.system_prompt_path}:`, err);
       process.exit(1);
     }
+  }
+
+  // Load capabilities from agent.config.json
+  const capabilities = loadCapabilities(config);
+  if (capabilities) {
+    console.log(`[${config.name}] Capabilities loaded: tier ${capabilities.tier}, tools: [${capabilities.tools.join(', ')}], MCP: [${capabilities.mcpServers.join(', ')}]`);
+  } else {
+    console.log(`[${config.name}] No agent.config.json found — using default capabilities`);
   }
 
   const app = express();
@@ -63,13 +107,14 @@ export function startAgentServer(config: AgentConfig): void {
 
     addTaskLog(task.id, 'info', `Task received from ${body.sender?.name ?? 'unknown'}`);
 
-    // Fire-and-forget execution
+    // Fire-and-forget execution — pass capabilities for dynamic tool/MCP selection
     executeTask(
       task.id,
       body.goal,
       systemPrompt,
       body.context,
       body.timeout_ms ?? config.timeout_ms,
+      capabilities,
     ).catch((err) => {
       console.error(`Task ${task.id} execution error:`, err);
     });
@@ -102,6 +147,11 @@ export function startAgentServer(config: AgentConfig): void {
     };
 
     res.json(status);
+  });
+
+  // ── Capabilities endpoint (for orchestrator introspection) ─────
+  app.get('/capabilities', (_req, res) => {
+    res.json(capabilities ?? { tier: 3, tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'], mcpServers: [], canSpawnSubAgents: false, maxTurns: 25, timeout: 900_000 });
   });
 
   // ── Health ───────────────────────────────────────────────────────

@@ -8,6 +8,9 @@ import {
   listAgents,
   updateAgentStatus,
   logOutcome,
+  getAgentCapabilities,
+  listAgentCapabilities,
+  type AgentCapabilities,
 } from './db.js';
 import { getStockAgentPrompt } from './stock-loader.js';
 import { getCustomAgentPrompt } from './custom-agents.js';
@@ -36,6 +39,96 @@ export async function discoverAgent(endpoint: string): Promise<boolean> {
   }
 }
 
+// ── Capability Requirements ─────────────────────────────────────────
+
+interface RequiredCapabilities {
+  needsWebSearch: boolean;
+  needsMcp: string[];
+  needsSubAgents: boolean;
+  needsWrite: boolean;
+}
+
+/** Heuristic: infer what capabilities a goal requires based on keywords. */
+function inferRequiredCapabilities(goal: string): RequiredCapabilities {
+  const lower = goal.toLowerCase();
+  return {
+    needsWebSearch: /\b(search.*web|web.*search|look up online|find.*online|latest.*news|current.*price|recent|trending|live data|real-time)\b/.test(lower),
+    needsMcp: /\b(scrape|crawl|extract.*from.*url|fetch.*page|website.*content|firecrawl)\b/.test(lower) ? ['firecrawl'] : [],
+    needsSubAgents: /\b(parallel|concurrent|multiple.*files|batch|across.*projects|refactor.*all)\b/.test(lower),
+    needsWrite: /\b(write|create|implement|build|fix|refactor|edit|modify|update.*code|add.*feature)\b/.test(lower),
+  };
+}
+
+// ── Gap Detection ───────────────────────────────────────────────────
+
+export interface CapabilityGap {
+  detected: boolean;
+  missing: string[];
+  recommendation: string;
+}
+
+function detectCapabilityGap(agentId: string, required: RequiredCapabilities): CapabilityGap {
+  const cap = getAgentCapabilities(agentId);
+  const missing: string[] = [];
+
+  if (!cap) {
+    if (required.needsWebSearch) missing.push('WebSearch');
+    if (required.needsMcp.length > 0) missing.push(...required.needsMcp.map(m => `MCP:${m}`));
+    if (required.needsSubAgents) missing.push('sub-agents');
+  } else {
+    if (required.needsWebSearch && !cap.tools.includes('WebSearch')) missing.push('WebSearch');
+    for (const mcp of required.needsMcp) {
+      if (!cap.mcp_servers.includes(mcp)) missing.push(`MCP:${mcp}`);
+    }
+    if (required.needsSubAgents && !cap.can_spawn_sub_agents) missing.push('sub-agents');
+    if (required.needsWrite && !cap.tools.includes('Write') && !cap.tools.includes('Edit')) missing.push('Write/Edit');
+  }
+
+  if (missing.length === 0) return { detected: false, missing: [], recommendation: '' };
+
+  const allCaps = listAgentCapabilities();
+  const recs: string[] = [];
+  for (const m of missing) {
+    const capable = allCaps.find(c => {
+      if (m === 'WebSearch') return c.tools.includes('WebSearch');
+      if (m.startsWith('MCP:')) return c.mcp_servers.includes(m.replace('MCP:', ''));
+      if (m === 'sub-agents') return c.can_spawn_sub_agents;
+      return false;
+    });
+    recs.push(capable
+      ? `Route to ${capable.agent_id} (has ${m})`
+      : `No agent has ${m} — add to existing Named Agent or create new one`);
+  }
+
+  return { detected: true, missing, recommendation: recs.join('; ') };
+}
+
+/** Find the best available agent that satisfies required capabilities. */
+function findCapableAgent(agents: AgentCard[], required: RequiredCapabilities, taskType: string): AgentCard | null {
+  const allCaps = listAgentCapabilities();
+  const capMap = new Map(allCaps.map(c => [c.agent_id, c]));
+
+  const scored = agents
+    .filter(a => a.status === 'available')
+    .map(agent => {
+      const cap = capMap.get(agent.id);
+      let score = 0;
+      if (agent.skills.some(s => s.toLowerCase() === taskType)) score += 10;
+      if (cap) {
+        if (required.needsWebSearch) score += cap.tools.includes('WebSearch') ? 15 : -20;
+        if (required.needsMcp.length > 0) score += required.needsMcp.every(m => cap.mcp_servers.includes(m)) ? 10 : -20;
+        if (required.needsSubAgents) score += cap.can_spawn_sub_agents ? 5 : -20;
+        if (cap.tier === 1) score += 2;
+      } else if (required.needsWebSearch || required.needsMcp.length > 0 || required.needsSubAgents) {
+        score -= 20;
+      }
+      return { agent, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return scored.length > 0 && scored[0].score > 0 ? scored[0].agent : null;
+}
+
 // ── Intent Classification ────────────────────────────────────────────
 
 interface ClassificationResult {
@@ -43,6 +136,8 @@ interface ClassificationResult {
   complexity: 'simple' | 'moderate' | 'complex';
   suggested_agent: string | null;
   reasoning: string;
+  required_capabilities: RequiredCapabilities;
+  gap: CapabilityGap;
 }
 
 export function classifyIntent(goal: string): ClassificationResult {
@@ -63,16 +158,33 @@ export function classifyIntent(goal: string): ClassificationResult {
     ? 'complex'
     : lower.length > 80 ? 'moderate' : 'simple';
 
+  const required_capabilities = inferRequiredCapabilities(goal);
+
   const agents = listAgents() as AgentCard[];
-  const matched = agents.find(a =>
-    a.skills.some((s: string) => s.toLowerCase() === task_type) && a.status === 'available'
-  );
+  const capableAgent = findCapableAgent(agents, required_capabilities, task_type);
+
+  const suggested_agent = capableAgent?.id
+    ?? agents.find(a => a.skills.some(s => s.toLowerCase() === task_type) && a.status === 'available')?.id
+    ?? agents.find(a => a.status === 'available')?.id
+    ?? null;
+
+  const gap = suggested_agent
+    ? detectCapabilityGap(suggested_agent, required_capabilities)
+    : { detected: false, missing: [] as string[], recommendation: '' };
+
+  let reasoning = `Classified as ${task_type} (${complexity}).`;
+  if (capableAgent) reasoning += ` Capability-matched: ${capableAgent.name}.`;
+  else if (suggested_agent) reasoning += ` Skill-matched: ${suggested_agent}.`;
+  else reasoning += ' No agent available.';
+  if (gap.detected) reasoning += ` GAP: missing [${gap.missing.join(', ')}]. ${gap.recommendation}`;
 
   return {
     task_type,
     complexity,
-    suggested_agent: matched?.id ?? (agents.find(a => a.status === 'available')?.id ?? null),
-    reasoning: `Classified as ${task_type} (${complexity}). ${matched ? `Matched agent: ${matched.name}` : 'No specific agent matched — will use default.'}`,
+    suggested_agent,
+    reasoning,
+    required_capabilities,
+    gap,
   };
 }
 
@@ -107,6 +219,10 @@ export function proposeMission(goal: string): { mission: Mission; classification
   if (classification.suggested_agent) {
     addMissionLog(id, 'info', `Suggested agent: ${classification.suggested_agent}`);
   }
+  if (classification.gap.detected) {
+    addMissionLog(id, 'info', `Capability gap: missing [${classification.gap.missing.join(', ')}]`);
+    addMissionLog(id, 'info', `Recommendation: ${classification.gap.recommendation}`);
+  }
 
   const mission = getMission(id) as Mission;
   return { mission, classification };
@@ -116,10 +232,19 @@ export async function approveMission(missionId: string): Promise<void> {
   const mission = getMission(missionId);
   if (!mission) throw new Error(`Mission ${missionId} not found`);
 
+  const agentId = (mission.agent_id as string) ?? 'stock-fallback';
+
+  // Check if agent is busy — queue instead of failing
+  const agents = listAgents() as AgentCard[];
+  const agent = agents.find(a => a.id === agentId);
+  if (agent?.status === 'busy') {
+    addMissionLog(missionId, 'info', `Agent ${agentId} is busy — queuing mission`);
+    updateMission(missionId, { status: 'proposed' });
+    return;
+  }
+
   updateMission(missionId, { status: 'running' });
   addMissionLog(missionId, 'info', 'Mission approved — executing');
-
-  const agentId = (mission.agent_id as string) ?? 'claude-code';
   updateAgentStatus(agentId, 'busy', missionId);
 
   const startTime = Date.now();
@@ -139,13 +264,17 @@ export async function approveMission(missionId: string): Promise<void> {
       const customPrompt = getCustomAgentPrompt(agentId);
       const stockPrompt = customPrompt ? null : getStockAgentPrompt(agentId);
       const agentPrompt = customPrompt || stockPrompt;
+
+      // Load capabilities for direct dispatch (Tier 2/3 won't have these)
+      const capabilities = getAgentCapabilities(agentId);
+
       if (agentPrompt) {
         const promptType = customPrompt ? 'custom' : 'stock';
         addMissionLog(missionId, 'info', `Using ${promptType} agent prompt for ${agentId}`);
-        result = await executeViaClaudeCode(mission.goal as string, missionId, agentPrompt);
+        result = await executeViaClaudeCode(mission.goal as string, missionId, agentPrompt, capabilities);
       } else {
         addMissionLog(missionId, 'info', 'No A2A endpoint — using direct Claude Code');
-        result = await executeViaClaudeCode(mission.goal as string, missionId);
+        result = await executeViaClaudeCode(mission.goal as string, missionId, undefined, capabilities);
       }
     }
 
@@ -250,27 +379,41 @@ async function executeViaA2A(endpoint: string, missionId: string, goal: string):
 
 // ── Direct Claude Code Dispatch (fallback) ───────────────────────────
 
-function executeViaClaudeCode(prompt: string, missionId: string, systemPrompt?: string): Promise<string> {
+function executeViaClaudeCode(
+  prompt: string,
+  missionId: string,
+  systemPrompt?: string,
+  capabilities?: AgentCapabilities | null,
+): Promise<string> {
   return new Promise((resolve, reject) => {
+    const tools = capabilities?.tools ?? ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'];
+    const maxTurns = capabilities?.max_turns ?? 25;
+    const timeoutMs = capabilities?.timeout ?? 900_000;
+
     const args = [
       '--print', prompt,
       '--output-format', 'text',
-      '--allowedTools', 'Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash',
-      '--max-turns', '25',
+      '--allowedTools', ...tools,
+      '--max-turns', String(maxTurns),
     ];
     if (systemPrompt) {
       args.push('--append-system-prompt', systemPrompt);
+    }
+    if (capabilities?.mcp_config_path) {
+      args.push('--mcp-config', capabilities.mcp_config_path);
+      args.push('--strict-mcp-config');
+      addMissionLog(missionId, 'info', `MCP: ${capabilities.mcp_config_path} (strict isolation)`);
     }
 
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY;
 
-    addMissionLog(missionId, 'progress', 'Starting Claude Code session...');
+    addMissionLog(missionId, 'progress', `Starting session — tools: [${tools.join(', ')}], max turns: ${maxTurns}`);
 
     const child = spawn('claude', args, {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 900_000,
+      timeout: timeoutMs,
     });
 
     let stdout = '';

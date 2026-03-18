@@ -3,9 +3,10 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { initDatabase } from './db.js';
+import { initDatabase, syncAgentCapabilities } from './db.js';
 import { seedDefaultAgents } from './seed.js';
 import { router } from './routes.js';
+import { startScheduler } from './scheduler.js';
 
 // Find project root
 function findProjectRoot(): string {
@@ -24,7 +25,8 @@ const PORT = parseInt(process.env.COMMAND_CENTER_PORT ?? '3142', 10);
 
 initDatabase();
 seedDefaultAgents();
-console.log('Database initialized, agents seeded');
+const synced = syncAgentCapabilities(PROJECT_ROOT);
+console.log(`Database initialized, agents seeded, ${synced} agent capabilities synced`);
 
 // ── Express App ──────────────────────────────────────────────────────
 
@@ -48,4 +50,5 @@ app.get('*', (_req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Command Center running on http://0.0.0.0:${PORT}`);
   console.log(`Access from Surface: http://10.0.0.46:${PORT}`);
+  startScheduler();
 });

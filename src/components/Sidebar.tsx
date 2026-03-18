@@ -28,6 +28,12 @@ export function Sidebar() {
     return 'bg-gray-500';
   };
 
+  const tierLabel = (type: string) => {
+    if (type === 'named') return { text: 'T1', color: 'text-indigo-400' };
+    if (type === 'custom') return { text: 'T2', color: 'text-cyan-400' };
+    return { text: 'T3', color: 'text-gray-500' };
+  };
+
   return (
     <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
       <div className="p-4 border-b border-gray-800">
@@ -47,6 +53,14 @@ export function Sidebar() {
           Missions
         </Link>
         <Link
+          to="/named-agents"
+          className={`block px-3 py-2 rounded text-sm mt-1 ${
+            location.pathname === '/named-agents' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+          }`}
+        >
+          Named Agents
+        </Link>
+        <Link
           to="/custom-agents"
           className={`block px-3 py-2 rounded text-sm mt-1 ${
             location.pathname === '/custom-agents' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
@@ -62,17 +76,41 @@ export function Sidebar() {
         >
           Stock Agents
         </Link>
+
+        <Link
+          to="/schedules"
+          className={`block px-3 py-2 rounded text-sm mt-1 ${
+            location.pathname === '/schedules' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+          }`}
+        >
+          Schedules
+        </Link>
+
+        <div className="mt-4 pt-4 border-t border-gray-800">
+          <p className="text-xs text-gray-600 uppercase tracking-wider mb-2 px-3">Fun</p>
+          <Link
+            to="/ai-town"
+            className={`block px-3 py-2 rounded text-sm ${
+              location.pathname === '/ai-town' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+          >
+            AI Town
+          </Link>
+        </div>
       </nav>
 
       <div className="p-4 border-t border-gray-800">
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Agents</h3>
-        {agents.map((agent) => (
-          <div key={agent.id} className="flex items-center gap-2 py-1.5 text-sm">
-            <span className={`w-2 h-2 rounded-full ${statusColor(agent.status)}`} />
-            <span className="text-gray-300">{agent.name}</span>
-            <span className="text-xs text-gray-600 ml-auto">{agent.type}</span>
-          </div>
-        ))}
+        {agents.map((agent) => {
+          const tier = tierLabel(agent.type);
+          return (
+            <div key={agent.id} className="flex items-center gap-2 py-1.5 text-sm">
+              <span className={`w-2 h-2 rounded-full ${statusColor(agent.status)}`} />
+              <span className="text-gray-300 truncate">{agent.name}</span>
+              <span className={`text-xs font-medium ml-auto ${tier.color}`}>{tier.text}</span>
+            </div>
+          );
+        })}
         {agents.length === 0 && (
           <p className="text-xs text-gray-600">No agents registered</p>
         )}

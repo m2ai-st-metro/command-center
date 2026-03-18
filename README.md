@@ -61,23 +61,42 @@ CMD runs at `http://localhost:3142` by default. Set `COMMAND_CENTER_PORT` to cha
 
 ### Add Named Agents (Optional)
 
-Named agents are persistent A2A services. Each has its own directory under `agents/`:
+Named agents are persistent A2A services. Each has its own directory under `agents/` with a capability config:
 
 ```bash
 agents/
-├── research/        # Soundwave — web research + analysis
-│   ├── AGENT.md     # System prompt
-│   └── index.ts     # A2A server entry point
-├── coding/          # Ravage — software engineering
+├── research/              # Soundwave — web research + analysis
+│   ├── AGENT.md           # System prompt
+│   ├── agent.config.json  # Capabilities (tools, MCP, limits)
+│   ├── .claude/mcp.json   # MCP server config (firecrawl, etc.)
+│   └── index.ts           # A2A server entry point
+├── coding/                # Ravage — software engineering
 │   ├── AGENT.md
+│   ├── agent.config.json
 │   └── index.ts
-├── content/         # Content writing + social media
+├── content/               # Content writing + social media
 │   ├── AGENT.md
+│   ├── agent.config.json
 │   └── index.ts
-└── runtime/         # Shared A2A runtime (server, executor, task store)
+└── runtime/               # Shared A2A runtime (server, executor, task store)
 ```
 
-Register agents in `ecosystem.config.cjs` and `server/seed.ts`, then restart pm2.
+Each `agent.config.json` declares the agent's tier, tools, MCP servers, and limits:
+
+```json
+{
+  "tier": 1,
+  "name": "Soundwave",
+  "skills": ["research", "analysis", "web-search"],
+  "tools": ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
+  "mcpServers": ["firecrawl"],
+  "canSpawnSubAgents": false,
+  "maxTurns": 30,
+  "timeout": 900000
+}
+```
+
+These configs are the **source of truth** — synced to a capability registry on startup. Register agents in `ecosystem.config.cjs` and `server/seed.ts`, then restart pm2.
 
 ### Sync Stock Agents
 
@@ -102,15 +121,18 @@ CMD uses a four-tier agent system. Higher tiers have more autonomy and capabilit
 
 ### Tier 1 — Named Agents
 
-Persistent specialists with their own A2A server and dedicated process. They can be tasked by the orchestrator **or act independently** via cron, direct A2A calls, or manual triggers.
+Persistent specialists with their own A2A server, dedicated process, and per-agent capability config. They can be tasked by the orchestrator **or act independently** via cron, direct A2A calls, or manual triggers.
 
 - Own A2A endpoint (dedicated port)
-- Own system prompt (`AGENT.md`)
+- Own system prompt (`AGENT.md`) + capability config (`agent.config.json`)
+- Per-agent tool access (WebSearch, WebFetch, MCP servers via `--allowedTools` + `--mcp-config`)
+- `--strict-mcp-config` isolation prevents leaking personal MCP servers
+- Can spawn sub-agents (per config — key differentiator for Ravage)
 - Persistent — always running
 - Learn from past tasks (Sky-Lynx integration planned)
 - Can be scheduled for recurring work
 
-**Examples:** Soundwave (research), Ravage (coding), Content Agent (writing)
+**Examples:** Soundwave (research + WebSearch + firecrawl), Ravage (coding + sub-agents), Content Agent (writing)
 
 ### Tier 2 — Custom Agents
 
@@ -143,21 +165,29 @@ Autonomous orchestrators that collaborate with CMD as equals, not subordinates. 
 ## Features
 
 ### Mission Orchestration
-- **Intent classification** — Keyword-based routing to the right agent
+- **Capability-aware routing** — Agents scored by skill match + capability match (WebSearch, MCP, sub-agents)
+- **Gap detection** — Detects when a task needs capabilities no available agent has, recommends fixes
 - **Mission lifecycle** — Propose, plan, approve, execute, log outcomes
 - **A2A protocol** — Standard agent-to-agent communication (task submission, polling, status)
 - **Multi-path dispatch** — A2A for Named agents, Claude Code spawn for Custom/Stock
+- **Busy agent queueing** — Missions re-queued when target agent is occupied
 - **Outcome logging** — Track routing quality per agent per task type
+- **Scheduled missions** — Recurring missions on configurable intervals (5m, 1h, 24h, 7d)
 
 ### Command Center UI
-- **Dashboard** — Create missions, monitor active/completed/failed
+- **Chat-style mission input** — Type a goal, see classification + suggested agent inline, approve with one click
 - **Mission Detail** — Real-time logs, progress updates, results
+- **Named Agents** — Read-only view of Tier 1 agents with capabilities, tools, MCP, tier access matrix
 - **Custom Agents** — Full CRUD for user-defined agents with markdown prompts
 - **Stock Agents** — Browse 300+ templates by category, search, load into registry
+- **Schedules** — Create, pause, resume, delete recurring missions
+- **Onboarding** — Example prompts for first-time users
 
 ### Agent Runtime
 - **Generic A2A server** — Any agent with an `AGENT.md` gets a standards-compliant A2A endpoint
-- **Claude Code executor** — Headless Claude Code sessions with tool allowlisting
+- **Per-agent capabilities** — Dynamic `--allowedTools`, `--mcp-config`, `--strict-mcp-config` from `agent.config.json`
+- **Capability registry** — SQLite cache synced from config files on startup
+- **Claude Code executor** — Headless Claude Code sessions with dynamic tool/MCP injection
 - **Task store** — In-memory task tracking with state machine (queued → running → completed/failed)
 - **Progress streaming** — Real-time stderr logging for execution visibility
 
@@ -187,6 +217,12 @@ All endpoints are under `/api`:
 | `POST` | `/custom-agents` | Create custom agent |
 | `PUT` | `/custom-agents/:id` | Update custom agent |
 | `DELETE` | `/custom-agents/:id` | Delete custom agent |
+| `GET` | `/agents/capabilities` | List all agent capabilities |
+| `GET` | `/agents/:id/capabilities` | Get agent capabilities |
+| `GET` | `/schedules` | List scheduled missions |
+| `POST` | `/schedules` | Create schedule (goal + interval) |
+| `PUT` | `/schedules/:id` | Update schedule (enable/disable/change interval) |
+| `DELETE` | `/schedules/:id` | Delete schedule |
 
 Named agents expose standard A2A endpoints:
 
@@ -195,6 +231,7 @@ Named agents expose standard A2A endpoints:
 | `GET` | `/.well-known/agent.json` | Agent card (capabilities, skills) |
 | `POST` | `/task` | Submit a task |
 | `GET` | `/task/:id` | Poll task status |
+| `GET` | `/capabilities` | Agent capabilities config |
 | `GET` | `/health` | Health check |
 
 ## Tech Stack
@@ -215,7 +252,7 @@ Named agents expose standard A2A endpoints:
 | Phase 2 | Done | Command Center MVP — mission dashboard, orchestrator, intent classification |
 | Phase 3 | Done | A2A protocol + Research agent (Soundwave) |
 | Phase 4 | Done | Coding agent (Ravage) + Content agent + Stock agent loader + bug fixes |
-| **Phase 4B** | **Next** | Tier naming in UI, Named Agents page, Schedule/Calendar view, onboarding wizard, chatbot UI |
+| Phase 4B | Done | Access model, Named Agents page, capability-aware routing, gap detection, schedules, chatbot UI, onboarding |
 | Phase 5 | Planned | Learning loop — orchestrator routing quality + Tier 1 agent self-learning via Sky-Lynx |
 | Phase 6 | Planned | Peer collaboration — Metroplex A2A integration, async priority queue, health monitoring |
 | Phase 7 | Planned | Tier 4 ClaudeClaw agents — framework-coupled agents in ClaudeClaw runtime |
@@ -231,14 +268,15 @@ command-center/
 │   └── runtime/            # A2A server, executor, task store
 ├── server/                 # Backend — orchestrator, routes, DB, loaders
 │   ├── index.ts            # Express app entry point
-│   ├── orchestrator.ts     # Mission lifecycle + A2A dispatch
+│   ├── orchestrator.ts     # Mission lifecycle, capability-aware routing, gap detection
+│   ├── scheduler.ts        # Interval-based mission scheduler
 │   ├── routes.ts           # API routes
-│   ├── db.ts               # SQLite schema + queries
+│   ├── db.ts               # SQLite schema + queries + capability registry
 │   ├── seed.ts             # Default agent registration
 │   ├── stock-loader.ts     # Stock agent discovery from repos
 │   └── custom-agents.ts    # Custom agent CRUD
 ├── src/                    # React frontend
-│   ├── pages/              # Dashboard, MissionDetail, CustomAgents, StockAgents
+│   ├── pages/              # Dashboard, MissionDetail, NamedAgents, CustomAgents, StockAgents, Schedules
 │   ├── components/         # Sidebar
 │   └── api.ts              # Fetch wrapper
 ├── shared/                 # Shared types + A2A protocol

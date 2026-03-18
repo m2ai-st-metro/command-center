@@ -1,11 +1,19 @@
 import { Router } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import {
   getMission,
   listMissions,
   getMissionLogs,
   listAgents,
   getOutcomeStats,
+  listAgentCapabilities,
+  getAgentCapabilities,
+  createSchedule,
+  listSchedules,
+  updateSchedule,
+  deleteSchedule,
 } from './db.js';
+import { nextRunFromInterval } from './scheduler.js';
 import {
   proposeMission,
   approveMission,
@@ -90,6 +98,22 @@ router.post('/missions/:id/cancel', (req, res) => {
 router.get('/agents', (_req, res) => {
   const agents = listAgents();
   res.json({ agents });
+});
+
+// ── Agent Capabilities ──────────────────────────────────────────────
+
+router.get('/agents/capabilities', (_req, res) => {
+  const capabilities = listAgentCapabilities();
+  res.json({ capabilities });
+});
+
+router.get('/agents/:id/capabilities', (req, res) => {
+  const cap = getAgentCapabilities(req.params.id);
+  if (!cap) {
+    res.status(404).json({ error: 'No capabilities found for agent' });
+    return;
+  }
+  res.json({ capabilities: cap });
 });
 
 // ── Status (for DataTG queries) ──────────────────────────────────────
@@ -266,4 +290,58 @@ router.post('/stock-agents/load', (req, res) => {
   }
 
   res.status(400).json({ error: 'Provide agent_id or category' });
+});
+
+// ── Schedules ────────────────────────────────────────────────────────
+
+router.get('/schedules', (_req, res) => {
+  const schedules = listSchedules();
+  res.json({ schedules });
+});
+
+router.post('/schedules', (req, res) => {
+  const { goal, interval } = req.body as { goal?: string; interval?: string };
+  if (!goal?.trim()) {
+    res.status(400).json({ error: 'goal is required' });
+    return;
+  }
+  if (!interval?.trim()) {
+    res.status(400).json({ error: 'interval is required (e.g. "30m", "1h", "24h")' });
+    return;
+  }
+  const nextRun = nextRunFromInterval(interval.trim());
+  if (!nextRun) {
+    res.status(400).json({ error: `Invalid interval "${interval}". Use: 5m, 1h, 24h, 7d` });
+    return;
+  }
+  const id = uuidv4();
+  createSchedule(id, goal.trim(), interval.trim(), nextRun);
+  res.status(201).json({ schedule: { id, goal: goal.trim(), cron: interval.trim(), enabled: true, next_run_at: nextRun } });
+});
+
+router.put('/schedules/:id', (req, res) => {
+  const { enabled, goal, interval } = req.body as { enabled?: boolean; goal?: string; interval?: string };
+  const updates: Record<string, unknown> = {};
+  if (enabled !== undefined) updates.enabled = enabled;
+  if (goal) updates.goal = goal;
+  if (interval) {
+    const nextRun = nextRunFromInterval(interval);
+    if (!nextRun) {
+      res.status(400).json({ error: `Invalid interval "${interval}"` });
+      return;
+    }
+    updates.cron = interval;
+    updates.next_run_at = nextRun;
+  }
+  updateSchedule(req.params.id, updates as Parameters<typeof updateSchedule>[1]);
+  res.json({ message: 'Schedule updated' });
+});
+
+router.delete('/schedules/:id', (req, res) => {
+  const deleted = deleteSchedule(req.params.id);
+  if (!deleted) {
+    res.status(404).json({ error: 'Schedule not found' });
+    return;
+  }
+  res.json({ message: 'Schedule deleted' });
 });

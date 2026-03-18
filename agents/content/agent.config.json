@@ -1,0 +1,10 @@
+{
+  "tier": 1,
+  "name": "Content Agent",
+  "skills": ["content", "writing", "documentation", "social-media", "editing"],
+  "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+  "mcpServers": [],
+  "canSpawnSubAgents": false,
+  "maxTurns": 25,
+  "timeout": 900000
+}

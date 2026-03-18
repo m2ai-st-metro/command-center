@@ -1,0 +1,10 @@
+{
+  "tier": 1,
+  "name": "Soundwave",
+  "skills": ["research", "analysis", "reporting", "web-search"],
+  "tools": ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
+  "mcpServers": ["firecrawl"],
+  "canSpawnSubAgents": false,
+  "maxTurns": 30,
+  "timeout": 900000
+}

@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CMD — Command Center</title>
+  <meta name="description" content="Multi-agent orchestration platform with tiered agent architecture. Route tasks to the right AI agent automatically." />
+  <meta property="og:title" content="CMD — Command Center" />
+  <meta property="og:description" content="Multi-agent orchestration platform with tiered agent architecture." />
+  <meta property="og:image" content="img/cmd-banner.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep: #050a12;
+      --bg-primary: #0a0f1a;
+      --bg-card: #111827;
+      --bg-card-hover: #1a2332;
+      --border: #1e293b;
+      --border-light: #334155;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-blue: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-green: #22c55e;
+      --accent-purple: #a855f7;
+      --accent-amber: #f59e0b;
+      --accent-red: #ef4444;
+      --glow-blue: rgba(59, 130, 246, 0.15);
+      --glow-cyan: rgba(6, 182, 212, 0.1);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── NAV ─────────────────────────────── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(5, 10, 18, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      max-width: 1100px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.75rem 1.5rem;
+    }
+    .nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--accent-blue); text-decoration: none; }
+    .nav-links { display: flex; gap: 1.5rem; }
+    .nav-links a {
+      color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+    .nav-gh {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.4rem 0.9rem; border-radius: 6px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      color: var(--text-secondary); text-decoration: none; font-size: 0.8rem; font-weight: 500;
+      transition: all 0.2s;
+    }
+    .nav-gh:hover { background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--border-light); }
+    .nav-gh svg { width: 16px; height: 16px; fill: currentColor; }
+
+    /* ── HERO ─────────────────────────────── */
+    .hero {
+      min-height: 85vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 6rem 1.5rem 4rem;
+      background:
+        radial-gradient(ellipse 60% 50% at 50% 40%, var(--glow-blue), transparent),
+        radial-gradient(ellipse 40% 30% at 30% 70%, var(--glow-cyan), transparent),
+        var(--bg-deep);
+    }
+    .hero-badge {
+      display: inline-block; padding: 0.3rem 0.85rem; border-radius: 99px;
+      background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25);
+      color: var(--accent-blue); font-size: 0.75rem; font-weight: 600;
+      letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 1.5rem;
+    }
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4.5rem); font-weight: 800;
+      letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 0.5rem;
+    }
+    .hero h1 .accent { color: var(--accent-blue); }
+    .hero .subtitle {
+      font-size: clamp(1rem, 2.5vw, 1.35rem); color: var(--text-secondary);
+      max-width: 600px; margin: 0 auto 2.5rem; font-weight: 400;
+    }
+    .hero-actions { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.7rem 1.5rem; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600; text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent-blue); color: #fff;
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+    }
+    .btn-primary:hover { background: #2563eb; box-shadow: 0 0 30px rgba(59, 130, 246, 0.4); }
+    .btn-secondary {
+      background: var(--bg-card); color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--bg-card-hover); border-color: var(--border-light); }
+
+    /* ── SECTIONS ─────────────────────────── */
+    section { padding: 5rem 1.5rem; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .section-label {
+      display: inline-block; color: var(--accent-blue); font-size: 0.75rem;
+      font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.75rem;
+    }
+    .section-title {
+      font-size: clamp(1.5rem, 3.5vw, 2.25rem); font-weight: 700;
+      letter-spacing: -0.02em; margin-bottom: 0.75rem;
+    }
+    .section-desc {
+      color: var(--text-secondary); font-size: 1.05rem;
+      max-width: 640px; margin-bottom: 3rem;
+    }
+
+    /* ── HOW IT WORKS ─────────────────────── */
+    .flow {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.5rem; margin-top: 2rem;
+    }
+    .flow-step {
+      padding: 1.5rem; border-radius: 10px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      transition: all 0.25s;
+    }
+    .flow-step:hover { border-color: var(--border-light); background: var(--bg-card-hover); }
+    .flow-num {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 700; margin-bottom: 1rem;
+    }
+    .flow-step h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .flow-step p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+
+    /* ── TIERS ────────────────────────────── */
+    .tiers-section { background: var(--bg-primary); }
+    .tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; }
+    .tier-card {
+      padding: 1.5rem; border-radius: 10px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      transition: all 0.25s; position: relative; overflow: hidden;
+    }
+    .tier-card:hover { border-color: var(--border-light); transform: translateY(-2px); }
+    .tier-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    }
+    .tier-card.t1::before { background: var(--accent-green); }
+    .tier-card.t2::before { background: var(--accent-blue); }
+    .tier-card.t3::before { background: var(--accent-amber); }
+    .tier-card.t4::before { background: var(--accent-purple); }
+    .tier-card.peer::before { background: var(--accent-cyan); }
+    .tier-badge {
+      display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; margin-bottom: 0.75rem;
+    }
+    .t1 .tier-badge { background: rgba(34, 197, 94, 0.15); color: var(--accent-green); }
+    .t2 .tier-badge { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+    .t3 .tier-badge { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+    .t4 .tier-badge { background: rgba(168, 85, 247, 0.15); color: var(--accent-purple); }
+    .peer .tier-badge { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); }
+    .tier-card h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .tier-card p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.75rem; }
+    .tier-traits { list-style: none; }
+    .tier-traits li {
+      font-size: 0.8rem; color: var(--text-muted); padding: 0.2rem 0;
+      padding-left: 1.1rem; position: relative;
+    }
+    .tier-traits li::before {
+      content: ''; position: absolute; left: 0; top: 0.55rem;
+      width: 5px; height: 5px; border-radius: 50%;
+    }
+    .t1 .tier-traits li::before { background: var(--accent-green); }
+    .t2 .tier-traits li::before { background: var(--accent-blue); }
+    .t3 .tier-traits li::before { background: var(--accent-amber); }
+    .t4 .tier-traits li::before { background: var(--accent-purple); }
+    .peer .tier-traits li::before { background: var(--accent-cyan); }
+
+    /* ── ARCHITECTURE ─────────────────────── */
+    .arch-img {
+      display: block; max-width: 700px; width: 100%; margin: 0 auto;
+      border-radius: 12px; border: 1px solid var(--border);
+    }
+
+    /* ── FEATURES ─────────────────────────── */
+    .feat-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+    .feat-card {
+      padding: 1.5rem; border-radius: 10px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      transition: all 0.25s;
+    }
+    .feat-card:hover { border-color: var(--border-light); }
+    .feat-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; margin-bottom: 0.75rem;
+      background: rgba(59, 130, 246, 0.1);
+    }
+    .feat-card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.35rem; }
+    .feat-card p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+
+    /* ── ROADMAP ──────────────────────────── */
+    .roadmap-section { background: var(--bg-primary); }
+    .roadmap { position: relative; padding-left: 2rem; }
+    .roadmap::before {
+      content: ''; position: absolute; left: 7px; top: 0; bottom: 0;
+      width: 2px; background: var(--border);
+    }
+    .rm-item { position: relative; padding-bottom: 2rem; }
+    .rm-item:last-child { padding-bottom: 0; }
+    .rm-dot {
+      position: absolute; left: -2rem; top: 0.2rem;
+      width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid var(--border); background: var(--bg-deep);
+    }
+    .rm-item.done .rm-dot { background: var(--accent-green); border-color: var(--accent-green); }
+    .rm-item.next .rm-dot {
+      background: var(--accent-blue); border-color: var(--accent-blue);
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
+    }
+    .rm-item.planned .rm-dot { background: var(--bg-card); border-color: var(--border-light); }
+    .rm-phase {
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; margin-bottom: 0.15rem;
+    }
+    .rm-item.done .rm-phase { color: var(--accent-green); }
+    .rm-item.next .rm-phase { color: var(--accent-blue); }
+    .rm-item.planned .rm-phase { color: var(--text-muted); }
+    .rm-title { font-size: 1rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .rm-desc { font-size: 0.85rem; color: var(--text-secondary); }
+    .rm-status {
+      display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px;
+      font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; margin-left: 0.5rem; vertical-align: middle;
+    }
+    .rm-item.done .rm-status { background: rgba(34, 197, 94, 0.15); color: var(--accent-green); }
+    .rm-item.next .rm-status { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+    .rm-item.planned .rm-status { background: rgba(100, 116, 139, 0.15); color: var(--text-muted); }
+
+    /* ── CTA ──────────────────────────────── */
+    .cta {
+      text-align: center; padding: 5rem 1.5rem;
+      background:
+        radial-gradient(ellipse 50% 60% at 50% 80%, var(--glow-blue), transparent),
+        var(--bg-deep);
+    }
+    .cta h2 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.75rem; }
+    .cta p { color: var(--text-secondary); margin-bottom: 2rem; max-width: 500px; margin-left: auto; margin-right: auto; }
+
+    /* ── FOOTER ───────────────────────────── */
+    footer {
+      padding: 2rem 1.5rem; text-align: center;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem; color: var(--text-muted);
+    }
+    footer a { color: var(--text-secondary); text-decoration: none; }
+    footer a:hover { color: var(--text-primary); }
+
+    /* ── RESPONSIVE ───────────────────────── */
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      .flow { grid-template-columns: 1fr; }
+      .tier-grid { grid-template-columns: 1fr; }
+      .feat-grid { grid-template-columns: 1fr; }
+      section { padding: 3rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">CMD</a>
+    <div class="nav-links">
+      <a href="#how-it-works">How It Works</a>
+      <a href="#tiers">Agent Tiers</a>
+      <a href="#features">Features</a>
+      <a href="#roadmap">Roadmap</a>
+    </div>
+    <a href="https://github.com/MatthewSnow2/command-center" class="nav-gh" target="_blank">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <span class="hero-badge">Open Source</span>
+  <h1><span class="accent">CMD</span> Command Center</h1>
+  <p class="subtitle">
+    Multi-agent orchestration that routes tasks to the right AI agent.
+    Four-tier architecture from ephemeral workers to persistent specialists.
+  </p>
+  <div class="hero-actions">
+    <a href="https://github.com/MatthewSnow2/command-center" class="btn btn-primary" target="_blank">Get Started</a>
+    <a href="#tiers" class="btn btn-secondary">Learn More</a>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how-it-works">
+  <div class="container">
+    <span class="section-label">How It Works</span>
+    <h2 class="section-title">From goal to result in four steps</h2>
+    <p class="section-desc">
+      You describe what you need. CMD figures out who should do it, dispatches the work,
+      and brings back results &mdash; with full logs and outcome tracking.
+    </p>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-num" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">1</div>
+        <h3>Propose</h3>
+        <p>Submit a mission goal in natural language. CMD classifies the intent and complexity automatically.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">2</div>
+        <h3>Route</h3>
+        <p>The orchestrator selects the best-fit agent from the tier system based on skills, availability, and past performance.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background: rgba(34,197,94,0.15); color: var(--accent-green);">3</div>
+        <h3>Execute</h3>
+        <p>The agent runs the task via A2A protocol (Tier 1) or Claude Code session (Tier 2/3). Progress streams in real time.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background: rgba(168,85,247,0.15); color: var(--accent-purple);">4</div>
+        <h3>Learn</h3>
+        <p>Outcomes are logged per agent per task type. Routing gets smarter over time. Named agents build context across tasks.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TIERS -->
+<section id="tiers" class="tiers-section">
+  <div class="container">
+    <span class="section-label">Agent Architecture</span>
+    <h2 class="section-title">Four tiers of AI agents</h2>
+    <p class="section-desc">
+      Not all agents are equal. CMD organizes them by autonomy, persistence, and learning capability.
+      Higher tiers have more independence.
+    </p>
+
+    <img src="img/cmd-architecture.png" alt="CMD Architecture Diagram" class="arch-img" style="margin-bottom: 2.5rem;" />
+
+    <div class="tier-grid">
+      <div class="tier-card t1">
+        <span class="tier-badge">Tier 1</span>
+        <h3>Named Agents</h3>
+        <p>Persistent specialists with their own A2A server. Can be tasked by the orchestrator or act independently.</p>
+        <ul class="tier-traits">
+          <li>Always running &mdash; dedicated port + process</li>
+          <li>Independent triggers: cron, A2A, manual</li>
+          <li>Learn from past tasks</li>
+          <li>Scheduled recurring work</li>
+        </ul>
+      </div>
+      <div class="tier-card t2">
+        <span class="tier-badge">Tier 2</span>
+        <h3>Custom Agents</h3>
+        <p>User-crafted specialists created through the UI. More capable than stock via tailored prompts, but still ephemeral.</p>
+        <ul class="tier-traits">
+          <li>Crafted markdown system prompt</li>
+          <li>Created/edited in the CMD UI</li>
+          <li>Spun up per task, dismissed when done</li>
+          <li>Improve through prompt refinement</li>
+        </ul>
+      </div>
+      <div class="tier-card t3">
+        <span class="tier-badge">Tier 3</span>
+        <h3>Stock Agents</h3>
+        <p>Generic workers from template libraries. The orchestrator picks one, spins it up, gets a result, moves on.</p>
+        <ul class="tier-traits">
+          <li>300+ templates across 80+ categories</li>
+          <li>Loaded from GitHub markdown repos</li>
+          <li>No memory between tasks</li>
+          <li>Browse and load on demand</li>
+        </ul>
+      </div>
+      <div class="tier-card t4">
+        <span class="tier-badge">Tier 4 &mdash; Planned</span>
+        <h3>ClaudeClaw Agents</h3>
+        <p>Framework-coupled agents that run within the ClaudeClaw runtime with access to Telegram context and user sessions.</p>
+        <ul class="tier-traits">
+          <li>Access to message history</li>
+          <li>Telegram session context</li>
+          <li>ClaudeClaw memory system</li>
+          <li>Definition in progress</li>
+        </ul>
+      </div>
+      <div class="tier-card peer">
+        <span class="tier-badge">Peers</span>
+        <h3>Autonomous Orchestrators</h3>
+        <p>Independent systems that collaborate with CMD as equals. Async A2A with priority queuing.</p>
+        <ul class="tier-traits">
+          <li>Own pipeline, own decisions</li>
+          <li>Lateral collaboration, not hierarchy</li>
+          <li>Async request/response</li>
+          <li>Example: Metroplex (software factory)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <span class="section-label">Features</span>
+    <h2 class="section-title">What CMD does today</h2>
+    <p class="section-desc">
+      Production-ready mission orchestration with a React UI, A2A protocol, and three specialist agents.
+    </p>
+    <div class="feat-grid">
+      <div class="feat-card">
+        <div class="feat-icon">&#x1f3af;</div>
+        <h3>Intent Classification</h3>
+        <p>Automatically classifies mission goals into task types (coding, research, content, ops) and routes to the right agent.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">&#x1f4e1;</div>
+        <h3>A2A Protocol</h3>
+        <p>Standard agent-to-agent communication. Named agents serve discovery cards, accept task submissions, and report progress.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">&#x1f4ca;</div>
+        <h3>Mission Dashboard</h3>
+        <p>Create, approve, and monitor missions in a React UI. Real-time logs, progress streaming, and result display.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">&#x1f9e9;</div>
+        <h3>300+ Stock Agents</h3>
+        <p>Browse agent templates by category, search by skill, and load into your registry on demand. From API scaffolding to game dev.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">&#x1f527;</div>
+        <h3>Custom Agent Builder</h3>
+        <p>Create your own agents with markdown system prompts through the CMD UI. Full CRUD with skill tagging.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">&#x1f4c8;</div>
+        <h3>Outcome Tracking</h3>
+        <p>Every dispatch logs task type, agent, status, duration, and reasoning. Routing quality is measurable and improvable.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section id="roadmap" class="roadmap-section">
+  <div class="container">
+    <span class="section-label">Roadmap</span>
+    <h2 class="section-title">Where we're headed</h2>
+    <p class="section-desc">
+      CMD is under active development. Here's what's done, what's next, and what's coming.
+    </p>
+    <div class="roadmap">
+      <div class="rm-item done">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 1</div>
+        <div class="rm-title">Telegram Relay (Galvatron) <span class="rm-status">Done</span></div>
+        <div class="rm-desc">Stripped orchestration from the Telegram bot. Clean relay for quick tasks and status queries.</div>
+      </div>
+      <div class="rm-item done">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 2</div>
+        <div class="rm-title">Command Center MVP <span class="rm-status">Done</span></div>
+        <div class="rm-desc">Mission dashboard, intent classification, agent registry, and the Data orchestrator.</div>
+      </div>
+      <div class="rm-item done">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 3</div>
+        <div class="rm-title">A2A Protocol + Research Agent <span class="rm-status">Done</span></div>
+        <div class="rm-desc">Agent-to-agent protocol, generic runtime shell, and Soundwave (research specialist).</div>
+      </div>
+      <div class="rm-item done">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 4</div>
+        <div class="rm-title">Coding + Content Agents, Stock Loader <span class="rm-status">Done</span></div>
+        <div class="rm-desc">Ravage (coding) and Content agents. Stock agent discovery from 300+ markdown templates. Custom agent CRUD.</div>
+      </div>
+      <div class="rm-item done">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 4B</div>
+        <div class="rm-title">Access Model, Schedules, Chatbot <span class="rm-status">Done</span></div>
+        <div class="rm-desc">Access model, Named Agents page, capability-aware routing, gap detection, scheduled missions, chatbot UI, onboarding.</div>
+      </div>
+      <div class="rm-item next">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 5</div>
+        <div class="rm-title">Learning Loop <span class="rm-status">Next</span></div>
+        <div class="rm-desc">Orchestrator learns routing quality. Tier 1 agents learn individually. Sky-Lynx automated improvements.</div>
+      </div>
+      <div class="rm-item planned">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 6</div>
+        <div class="rm-title">Peer Collaboration <span class="rm-status">Planned</span></div>
+        <div class="rm-desc">Metroplex A2A integration. Async priority queue. Cross-orchestrator health monitoring and intervention.</div>
+      </div>
+      <div class="rm-item planned">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 7</div>
+        <div class="rm-title">ClaudeClaw Agents <span class="rm-status">Planned</span></div>
+        <div class="rm-desc">Tier 4 agents coupled to the ClaudeClaw framework. Telegram context, message history, session access.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <h2>Ready to orchestrate?</h2>
+  <p>CMD is open source. Clone it, configure your primary agent, and start routing tasks in minutes.</p>
+  <div class="hero-actions">
+    <a href="https://github.com/MatthewSnow2/command-center" class="btn btn-primary" target="_blank">View on GitHub</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>
+    CMD &mdash; Command Center &bull;
+    Built by <a href="https://github.com/MatthewSnow2" target="_blank">MatthewSnow2</a> &bull;
+    MIT License
+  </p>
+</footer>
+
+</body>
+</html>
