@@ -377,17 +377,12 @@
   <span class="hero-badge">Open Source</span>
   <h1><span class="accent">CMD</span> Command Center</h1>
   <p class="subtitle">
-    Multi-agent orchestration that routes tasks to the right AI agent.
-    Four-tier architecture from ephemeral workers to persistent specialists.
+    Multi-agent orchestration with a Planner-Worker-Judge architecture.
+    Missions are decomposed, executed in parallel, and quality-evaluated automatically.
   </p>
   <div class="hero-actions">
     <a href="https://github.com/MatthewSnow2/command-center" class="btn btn-primary" target="_blank">Get Started</a>
-    <a href="#tiers" class="btn btn-secondary">Learn More</a>
-  </div>
-  <div class="vr-banner">
-    <span class="vr-banner-label">Coming April 1st</span>
-    <h3>VR Bridge &mdash; Starship Agents</h3>
-    <p>VR simulation coming April 1st</p>
+    <a href="#how-it-works" class="btn btn-secondary">Learn More</a>
   </div>
 </section>
 
@@ -395,31 +390,39 @@
 <section id="how-it-works">
   <div class="container">
     <span class="section-label">How It Works</span>
-    <h2 class="section-title">From goal to result in four steps</h2>
+    <h2 class="section-title">Planner-Worker-Judge: the Cursor pattern</h2>
     <p class="section-desc">
-      You describe what you need. CMD figures out who should do it, dispatches the work,
-      and brings back results &mdash; with full logs and outcome tracking.
+      Every mission flows through three stages inspired by Cursor's multi-agent architecture.
+      The result: smarter routing that improves with every task.
     </p>
+
+    <img src="img/cmd-mission-lifecycle.png" alt="CMD Mission Lifecycle" class="arch-img" style="margin-bottom: 2.5rem;" />
+
     <div class="flow">
       <div class="flow-step">
         <div class="flow-num" style="background: rgba(59,130,246,0.15); color: var(--accent-blue);">1</div>
-        <h3>Propose</h3>
-        <p>Submit a mission goal in natural language. CMD classifies the intent and complexity automatically.</p>
+        <h3>Classify</h3>
+        <p>Submit a goal in natural language. CMD classifies intent, complexity, and required capabilities automatically.</p>
       </div>
       <div class="flow-step">
         <div class="flow-num" style="background: rgba(6,182,212,0.15); color: var(--accent-cyan);">2</div>
-        <h3>Route</h3>
-        <p>The orchestrator selects the best-fit agent from the tier system based on skills, availability, and past performance.</p>
+        <h3>Plan</h3>
+        <p>Sonnet decomposes the goal into ordered subtasks with dependencies. Each subtask gets the best-fit agent assigned.</p>
       </div>
       <div class="flow-step">
         <div class="flow-num" style="background: rgba(34,197,94,0.15); color: var(--accent-green);">3</div>
         <h3>Execute</h3>
-        <p>The agent runs the task via A2A protocol (Tier 1) or Claude Code session (Tier 2/3). Progress streams in real time.</p>
+        <p>A pool of 8&ndash;12 workers dispatches subtasks in parallel. Git worktree isolation for coding tasks. Retry on failure.</p>
       </div>
       <div class="flow-step">
         <div class="flow-num" style="background: rgba(168,85,247,0.15); color: var(--accent-purple);">4</div>
+        <h3>Judge</h3>
+        <p>Two-layer quality evaluation: algorithmic pre-checks then Sonnet scoring on correctness, completeness, and relevance.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num" style="background: rgba(245,158,11,0.15); color: var(--accent-amber);">5</div>
         <h3>Learn</h3>
-        <p>Outcomes are logged per agent per task type. Routing gets smarter over time. Named agents build context across tasks.</p>
+        <p>Judge scores feed into dimensional routing weights per agent per task type. Better agents get more work over time.</p>
       </div>
     </div>
   </div>
@@ -435,7 +438,7 @@
       Higher tiers have more independence.
     </p>
 
-    <img src="img/cmd-architecture.png" alt="CMD Architecture Diagram" class="arch-img" style="margin-bottom: 2.5rem;" />
+    <img src="img/cmd-architecture-v2.png" alt="CMD Architecture — Planner-Worker-Judge" class="arch-img" style="margin-bottom: 2.5rem;" />
 
     <div class="tier-grid">
       <div class="tier-card t1">
@@ -497,13 +500,25 @@
   </div>
 </section>
 
+<!-- PLANNER-WORKER-JUDGE -->
+<section id="pwj">
+  <div class="container" style="text-align: center;">
+    <span class="section-label">Phase 5 Architecture</span>
+    <h2 class="section-title">Planner &rarr; Workers &rarr; Judge</h2>
+    <p class="section-desc" style="margin-left: auto; margin-right: auto;">
+      Inspired by Cursor's multi-agent hierarchy. The Planner decomposes goals, Workers execute in parallel with isolation, and the Judge scores quality on three dimensions.
+    </p>
+    <img src="img/cmd-planner-worker-judge.png" alt="Planner-Worker-Judge Architecture" class="arch-img" />
+  </div>
+</section>
+
 <!-- FEATURES -->
 <section id="features">
   <div class="container">
     <span class="section-label">Features</span>
     <h2 class="section-title">What CMD does today</h2>
     <p class="section-desc">
-      Production-ready mission orchestration with a React UI, A2A protocol, and three specialist agents.
+      Production-ready mission orchestration with a Planner-Worker-Judge pipeline, React UI, A2A protocol, and three specialist agents.
     </p>
     <div class="feat-grid">
       <div class="feat-card">
@@ -532,9 +547,24 @@
         <p>Create your own agents with markdown system prompts through the CMD UI. Full CRUD with skill tagging.</p>
       </div>
       <div class="feat-card">
+        <div class="feat-icon" style="background: rgba(6,182,212,0.1);">&#x1f9e0;</div>
+        <h3>Mission Planner</h3>
+        <p>Sonnet decomposes every mission into ordered subtasks with dependency chains. Multi-domain goals get split across specialist agents.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon" style="background: rgba(34,197,94,0.1);">&#x2696;</div>
+        <h3>Quality Judge</h3>
+        <p>Two-layer evaluation: algorithmic pre-checks (free) then Sonnet scoring on correctness, completeness, and relevance. Task-type-specific dimensional weights.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon" style="background: rgba(168,85,247,0.1);">&#x1f3ed;</div>
+        <h3>Worker Pool</h3>
+        <p>8&ndash;12 parallel worker slots with dependency-aware scheduling. Git worktree isolation for coding tasks. Retry once on failure, cancel dependents.</p>
+      </div>
+      <div class="feat-card">
         <div class="feat-icon">&#x1f4c8;</div>
-        <h3>Outcome Tracking</h3>
-        <p>Every dispatch logs task type, agent, status, duration, and reasoning. Routing quality is measurable and improvable.</p>
+        <h3>Dimensional Routing</h3>
+        <p>Judge scores feed per-dimension routing weights (correctness, completeness, relevance) per agent per task type. Routing improves with every mission.</p>
       </div>
       <div class="feat-card">
         <div class="feat-icon">&#x1f4ac;</div>
@@ -669,11 +699,17 @@
         <div class="rm-title">Access Model, Schedules, Chatbot <span class="rm-status">Done</span></div>
         <div class="rm-desc">Access model, Named Agents page, capability-aware routing, gap detection, scheduled missions, chatbot UI, onboarding.</div>
       </div>
-      <div class="rm-item next">
+      <div class="rm-item done">
         <div class="rm-dot"></div>
         <div class="rm-phase">Phase 5</div>
-        <div class="rm-title">Learning Loop <span class="rm-status">Next</span></div>
-        <div class="rm-desc">Orchestrator learns routing quality. Tier 1 agents learn individually. Sky-Lynx automated improvements.</div>
+        <div class="rm-title">Planner-Worker-Judge <span class="rm-status">Done</span></div>
+        <div class="rm-desc">Sonnet mission planner, parallel worker pool (8&ndash;12 slots), two-layer quality judge, dimensional routing weights, subtask timeline UI.</div>
+      </div>
+      <div class="rm-item next">
+        <div class="rm-dot"></div>
+        <div class="rm-phase">Phase 5B</div>
+        <div class="rm-title">Embedded MCP Server <span class="rm-status">Next</span></div>
+        <div class="rm-desc">CMD exposes agents, missions, routing, and schedules as MCP tools on the same port. Zero extra setup for Claude Code users.</div>
       </div>
       <div class="rm-item planned">
         <div class="rm-dot"></div>
