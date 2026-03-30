@@ -32,7 +32,7 @@ Credit rules:
 You can query local SQLite databases for project data:
 - IdeaForge: `/home/apexaipc/projects/ideaforge/data/ideaforge.db` (market signals)
 - Metroplex: `/home/apexaipc/projects/metroplex/data/metroplex.db` (build pipeline)
-- ST Factory: `/home/apexaipc/projects/st-factory/data/persona_metrics.db` (persona metrics)
+- ST Records: `/home/apexaipc/projects/st-records/data/persona_metrics.db` (persona metrics)
 
 ### General Research
 - File system access for reading project docs, READMEs, code
