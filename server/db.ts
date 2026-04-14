@@ -156,6 +156,10 @@ export function initDatabase(): Database.Database {
   migrateSafe('ALTER TABLE missions ADD COLUMN judge_verdict TEXT');
   // R2.4: mission_tasks gains optional skill hint for per-skill model routing
   migrateSafe('ALTER TABLE mission_tasks ADD COLUMN skill TEXT');
+  // 027: per-task worktree isolation for the A2A/mission-task dispatch path
+  migrateSafe('ALTER TABLE mission_tasks ADD COLUMN repo_path TEXT');
+  migrateSafe('ALTER TABLE mission_tasks ADD COLUMN worktree_path TEXT');
+  migrateSafe('ALTER TABLE mission_tasks ADD COLUMN branch_name TEXT');
 
   // Phase 5.2: Worker pool persistence
   db.exec(`
@@ -744,6 +748,9 @@ function mapMissionTaskRow(row: Record<string, unknown>): MissionTask {
     completed_at: row.completed_at as number | null,
     a2a_task_id: row.a2a_task_id as string | null,
     skill: (row.skill as string | null | undefined) ?? null,
+    repo_path: (row.repo_path as string | null | undefined) ?? null,
+    worktree_path: (row.worktree_path as string | null | undefined) ?? null,
+    branch_name: (row.branch_name as string | null | undefined) ?? null,
   };
 }
 
@@ -754,11 +761,12 @@ export function createMissionTask(task: {
   prompt: string;
   priority?: number;
   skill?: string;
+  repo_path?: string;
 }): MissionTask {
   const now = Math.floor(Date.now() / 1000);
   getDb().prepare(
-    `INSERT INTO mission_tasks (id, agent_id, title, prompt, priority, status, created_at, skill) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`
-  ).run(task.id, task.agent_id, task.title, task.prompt, task.priority ?? 5, now, task.skill ?? null);
+    `INSERT INTO mission_tasks (id, agent_id, title, prompt, priority, status, created_at, skill, repo_path) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?)`
+  ).run(task.id, task.agent_id, task.title, task.prompt, task.priority ?? 5, now, task.skill ?? null, task.repo_path ?? null);
   return getMissionTask(task.id)!;
 }
 
@@ -784,6 +792,8 @@ export function updateMissionTask(id: string, updates: Partial<{
   claimed_at: number | null;
   completed_at: number | null;
   a2a_task_id: string | null;
+  worktree_path: string | null;
+  branch_name: string | null;
 }>): void {
   const fields = Object.entries(updates).filter(([, v]) => v !== undefined);
   if (fields.length === 0) return;

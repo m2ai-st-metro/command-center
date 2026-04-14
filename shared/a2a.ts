@@ -53,6 +53,14 @@ export interface A2ATaskRequest {
   };
   /** Timeout in ms (agent should respect this) */
   timeout_ms?: number;
+  /**
+   * 027: Working directory for the Claude Code session.
+   * When set, the executor spawns the child with this cwd — used by the
+   * mission-dispatcher to hand each task its own pre-created git worktree
+   * so parallel A2A dispatches don't trample each other.
+   * Extension field; agents that don't recognize it fall back to default cwd.
+   */
+  cwd?: string;
 }
 
 /** POST /task — response body (immediate acknowledgment) */

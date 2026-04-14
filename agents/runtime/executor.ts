@@ -15,6 +15,7 @@ export async function executeTask(
   context?: string,
   timeoutMs = 900_000,
   capabilities?: AgentCapabilitiesConfig,
+  cwd?: string,
 ): Promise<void> {
   updateTask(taskId, { state: 'running' });
   addTaskLog(taskId, 'info', 'Starting Claude Code session...');
@@ -27,7 +28,7 @@ export async function executeTask(
     : goal;
 
   try {
-    const result = await runClaudeCode(taskId, userPrompt, systemPrompt, timeoutMs, capabilities);
+    const result = await runClaudeCode(taskId, userPrompt, systemPrompt, timeoutMs, capabilities, cwd);
     const durationMs = Date.now() - startTime;
 
     updateTask(taskId, {
@@ -55,6 +56,7 @@ function runClaudeCode(
   systemPrompt: string,
   timeoutMs: number,
   capabilities?: AgentCapabilitiesConfig,
+  cwd?: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Determine tools from capabilities or use defaults
@@ -100,6 +102,7 @@ function runClaudeCode(
 
     const child = spawn('claude', args, {
       env,
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: timeoutMs,
     });

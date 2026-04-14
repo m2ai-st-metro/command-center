@@ -47,9 +47,11 @@ function usage(exitCode = 2): never {
   console.error(`Usage: mission-cli <command> [options]
 
 Commands:
-  create --agent <id> --title <label> [--skill <s>] [--priority N] [--json] "<prompt>"
+  create --agent <id> --title <label> [--skill <s>] [--repo <path>] [--priority N] [--json] "<prompt>"
      Queue a task for an agent. Returns the task id.
      --skill routes to an agent's skill-specific model (R2.4, if configured).
+     --repo runs the task in an isolated git worktree of the given repo (027).
+            Path must be an absolute path to a git repo on this machine.
 
   list [--limit N] [--status <s>] [--json]
      List recent tasks (default 20). Status: queued, running, completed, failed, cancelled.
@@ -98,6 +100,7 @@ async function cmdCreate(args: ParsedArgs): Promise<void> {
   const agent = args.flags.agent as string | undefined;
   const title = args.flags.title as string | undefined;
   const skill = args.flags.skill as string | undefined;
+  const repoPath = args.flags.repo as string | undefined;
   const priority = args.flags.priority ? parseInt(args.flags.priority as string, 10) : undefined;
   const prompt = args.positional.join(' ');
 
@@ -106,9 +109,14 @@ async function cmdCreate(args: ParsedArgs): Promise<void> {
     usage();
   }
 
+  if (repoPath && !repoPath.startsWith('/')) {
+    console.error(`Error: --repo must be an absolute path (got: ${repoPath}).\n`);
+    process.exit(2);
+  }
+
   const { task } = await apiCall<{ task: MissionTask }>('/api/tasks', {
     method: 'POST',
-    body: JSON.stringify({ agent_id: agent, title, prompt, priority, skill }),
+    body: JSON.stringify({ agent_id: agent, title, prompt, priority, skill, repo_path: repoPath }),
   });
 
   if (args.flags.json) {

@@ -8,6 +8,7 @@ import {
 } from './db.js';
 import { getA2AEndpoint } from './orchestrator.js';
 import type { A2ATaskRequest, A2ATaskStatus } from '../shared/a2a.js';
+import { createWorktree, mergeWorktree, cleanupWorktree, isGitRepo } from './worktree-mt.js';
 
 /** Format prior conversation as a context block for the agent's next task. */
 function buildConversationContext(history: ConversationEntry[]): string | undefined {
@@ -42,12 +43,42 @@ export async function dispatchMissionTask(taskId: string): Promise<void> {
   const history = getRecentConversation(task.agent_id);
   const conversationContext = buildConversationContext(history);
 
+  // 027: if the caller supplied a repo_path, create a per-task worktree so
+  // parallel A2A dispatches don't trample each other in a shared cwd.
+  let worktreePath: string | null = null;
+  if (task.repo_path) {
+    if (!isGitRepo(task.repo_path)) {
+      updateMissionTask(taskId, {
+        status: 'failed',
+        error: `repo_path is not a git repo: ${task.repo_path}`,
+        completed_at: Math.floor(Date.now() / 1000),
+      });
+      return;
+    }
+    try {
+      const ids = createWorktree(task.repo_path, task.id);
+      worktreePath = ids.worktreePath;
+      updateMissionTask(taskId, {
+        worktree_path: ids.worktreePath,
+        branch_name: ids.branchName,
+      });
+    } catch (err) {
+      updateMissionTask(taskId, {
+        status: 'failed',
+        error: `Worktree creation failed: ${err instanceof Error ? err.message : String(err)}`,
+        completed_at: Math.floor(Date.now() / 1000),
+      });
+      return;
+    }
+  }
+
   const body: A2ATaskRequest = {
     id: task.id,
     goal: task.prompt,
     context: conversationContext,
     skill: task.skill ?? undefined,
     sender: { id: 'mission-dispatcher', name: 'CMD Mission Dispatcher' },
+    cwd: worktreePath ?? undefined,
   };
 
   try {
@@ -106,16 +137,44 @@ async function pollRunningTasks(): Promise<void> {
 
       const status = await res.json() as A2ATaskStatus;
       if (status.state === 'completed') {
-        const result = status.result ?? '(no output)';
+        let result = status.result ?? '(no output)';
+        let finalStatus: 'completed' | 'failed' = 'completed';
+        let finalError: string | null = null;
+
+        // 027: merge the worktree back if there was one.
+        if (task.repo_path && task.worktree_path && task.branch_name) {
+          const outcome = mergeWorktree(task.repo_path, task.branch_name, task.worktree_path);
+          if (outcome.conflict) {
+            finalStatus = 'failed';
+            finalError = `Merge conflict on branch ${task.branch_name}. Worktree preserved at ${task.worktree_path} for manual resolution. Agent output follows:\n\n${result}`;
+          } else if (outcome.error) {
+            finalStatus = 'failed';
+            finalError = `Merge failed: ${outcome.error}. Worktree: ${task.worktree_path}`;
+          } else {
+            if (outcome.noChanges) {
+              result = `${result}\n\n[worktree: no commits made]`;
+            } else if (outcome.merged) {
+              result = `${result}\n\n[worktree: merged branch ${task.branch_name} back to HEAD]`;
+            }
+            // Clean up only on a clean merge/no-changes.
+            cleanupWorktree(task.repo_path, task.worktree_path, task.branch_name);
+          }
+        }
+
         updateMissionTask(task.id, {
-          status: 'completed',
-          result,
+          status: finalStatus,
+          result: finalStatus === 'completed' ? result : result,
+          error: finalError,
           completed_at: Math.floor(Date.now() / 1000),
         });
         // R2.3: persist the exchange so future tasks for this agent have context
         appendConversation(task.agent_id, 'user', task.prompt, task.id);
         appendConversation(task.agent_id, 'assistant', result, task.id);
       } else if (status.state === 'failed') {
+        // 027: agent failed — discard the worktree (nothing to merge).
+        if (task.repo_path && task.worktree_path && task.branch_name) {
+          cleanupWorktree(task.repo_path, task.worktree_path, task.branch_name);
+        }
         updateMissionTask(task.id, {
           status: 'failed',
           error: status.error ?? 'A2A task failed without error message',

@@ -146,6 +146,10 @@ export interface MissionTask {
   completed_at: number | null;
   a2a_task_id: string | null;  // id returned by agent's A2A endpoint
   skill: string | null;        // R2.4: optional skill hint for per-skill model routing
+  // 027: per-task worktree isolation for A2A/mission-task dispatch path
+  repo_path: string | null;    // absolute path to the source git repo (caller-supplied)
+  worktree_path: string | null; // `/tmp/cmd-mt-<id8>` — assigned by dispatcher pre-POST
+  branch_name: string | null;   // `cmd-mt-<id8>` — branch created in worktree
 }
 
 export interface CreateMissionTaskRequest {
@@ -154,6 +158,7 @@ export interface CreateMissionTaskRequest {
   prompt: string;
   priority?: number;
   skill?: string;              // R2.4
+  repo_path?: string;          // 027: work inside an isolated worktree of this repo
 }
 
 // ── API Types ────────────────────────────────────────────────────────

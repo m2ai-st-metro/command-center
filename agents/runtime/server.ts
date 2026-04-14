@@ -131,6 +131,16 @@ export function startAgentServer(config: AgentConfig): void {
       ? { ...capabilities, model: resolvedModel }
       : undefined;
 
+    // 027: validate caller-supplied cwd. Must be an absolute path under /tmp
+    // (we only accept worktrees created by the dispatcher), else ignore it.
+    let resolvedCwd: string | undefined;
+    if (typeof body.cwd === 'string' && body.cwd.startsWith('/tmp/cmd-mt-')) {
+      resolvedCwd = body.cwd;
+      addTaskLog(task.id, 'info', `cwd: ${resolvedCwd}`);
+    } else if (body.cwd) {
+      addTaskLog(task.id, 'info', `cwd ignored (not a /tmp/cmd-mt-* path): ${body.cwd}`);
+    }
+
     // Fire-and-forget execution — pass capabilities for dynamic tool/MCP selection
     executeTask(
       task.id,
@@ -139,6 +149,7 @@ export function startAgentServer(config: AgentConfig): void {
       body.context,
       body.timeout_ms ?? config.timeout_ms,
       effectiveCapabilities,
+      resolvedCwd,
     ).catch((err) => {
       console.error(`Task ${task.id} execution error:`, err);
     });
