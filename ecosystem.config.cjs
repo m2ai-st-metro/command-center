@@ -51,5 +51,31 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
+    {
+      name: 'agent-data',
+      script: 'node_modules/.bin/tsx',
+      args: 'agents/data/index.ts',
+      cwd: __dirname,
+      env: {
+        NODE_ENV: 'production',
+        DATA_AGENT_PORT: '3146',
+      },
+      exp_backoff_restart_delay: 1000,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+    {
+      name: 'agent-kup',
+      script: 'node_modules/.bin/tsx',
+      args: 'agents/kup/index.ts',
+      cwd: __dirname,
+      env: {
+        NODE_ENV: 'production',
+        KUP_AGENT_PORT: '3147',
+      },
+      exp_backoff_restart_delay: 1000,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
   ],
 };
