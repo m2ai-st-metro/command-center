@@ -4,7 +4,7 @@ description: Software engineering — write, modify, debug, refactor, and review
 model: claude-sonnet-4-6
 tools: [Read, Glob, Grep, Write, Edit, Bash]
 tier: 1
-skills: [coding, debugging, refactoring, testing, git]
+skills: [coding, debugging, refactoring, testing, git, pr-review-toolkit, code-review, silent-failure-detection, type-design-analysis, comment-analysis]
 mcpServers: []
 canSpawnSubAgents: true
 maxTurns: 30
