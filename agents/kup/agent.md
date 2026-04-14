@@ -7,7 +7,7 @@ tier: 1
 skills: [engineering, infrastructure, porting, postmortem, maintenance]
 mcpServers: []
 canSpawnSubAgents: true
-maxTurns: 30
+maxTurns: 60
 timeout: 900000
 ---
 
