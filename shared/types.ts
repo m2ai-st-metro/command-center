@@ -30,6 +30,8 @@ export interface MissionSubtask {
   depends_on: string[];
   duration_ms?: number | null;
   task_type?: string;
+  /** R1.4: objective success criteria for this subtask, populated by planner. Judge may consume. */
+  verification?: string;
 }
 
 // ── Agent Types ──────────────────────────────────────────────────────

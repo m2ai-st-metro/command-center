@@ -14,6 +14,7 @@ import type { MissionPlan, MissionSubtask } from '../shared/types.js';
 interface PlannerSubtask {
   description: string;
   task_type: string;
+  verification: string;
   depends_on: number[];  // indices into the array
 }
 
@@ -29,21 +30,26 @@ Your job: decompose a user's goal into ordered subtasks that can be executed by 
 - **general**: Anything that doesn't fit the above
 
 ## Rules
-1. Return a JSON array of subtasks. Each subtask has: description, task_type, depends_on (array of 0-based indices of subtasks this one depends on)
+1. Return a JSON array of subtasks. Each subtask has: description, task_type, verification, depends_on (array of 0-based indices of subtasks this one depends on)
 2. Keep subtasks atomic — one clear action per subtask
 3. Order by dependency — earlier subtasks first
 4. For simple goals that are a single action, return exactly ONE subtask
-5. Never create more than 6 subtasks — if the goal seems larger, group related actions
+5. Cap subtasks at 6 for normal goals. Bulk operations (see rule 8) may exceed this and should go up to as many chunks as needed, hard cap 12.
 6. depends_on must only reference earlier subtasks (lower indices)
+7. **verification** (required, non-empty): describe how to objectively verify this subtask succeeded — a concrete observable outcome, not a restatement of the description. If you cannot articulate verification, decompose further.
+8. **Bulk operation chunking:** If a goal involves processing many files or items (renaming across a codebase, bulk edits, mass updates), NEVER put all items into a single subtask. Split into chunks of 10-15 files per subtask. Each subtask gets a specific list of files or a scoped directory. Independent chunks should have NO dependencies between them so they run in parallel. Add a final verification subtask (depends_on all chunks) that confirms the full operation succeeded. This prevents individual subtasks from exceeding the execution timeout.
 
 ## Output Format
 Return ONLY valid JSON. No markdown, no explanation, no code fences.
 
 Example for "Research competitors and write a blog post comparing them":
-[{"description":"Research top competitors, their features, pricing, and market position","task_type":"research","depends_on":[]},{"description":"Write a comparison blog post based on the research findings","task_type":"content","depends_on":[0]}]
+[{"description":"Research top competitors, their features, pricing, and market position","task_type":"research","verification":"A structured summary with at least 3 competitors and fields for features, pricing, positioning.","depends_on":[]},{"description":"Write a comparison blog post based on the research findings","task_type":"content","verification":"A published-ready blog post of at least 600 words citing each competitor from the research.","depends_on":[0]}]
 
 Example for "Fix the login bug":
-[{"description":"Fix the login bug","task_type":"coding","depends_on":[]}]`;
+[{"description":"Fix the login bug","task_type":"coding","verification":"Login flow succeeds end-to-end and a regression test covering the bug passes.","depends_on":[]}]
+
+Example for "Refactor error handling in every .ts file under /tmp/foo/" (bulk, 28 files):
+[{"description":"Refactor error handling in files 1-14 of /tmp/foo/ (list files first, then edit)","task_type":"coding","verification":"Each of the 14 files wraps risky calls in try/catch and logs via logger.error; build still passes.","depends_on":[]},{"description":"Refactor error handling in files 15-28 of /tmp/foo/","task_type":"coding","verification":"Each of the 14 files wraps risky calls in try/catch and logs via logger.error; build still passes.","depends_on":[]},{"description":"Verify all .ts files under /tmp/foo/ have been refactored","task_type":"coding","verification":"grep confirms zero untouched files remain; build passes.","depends_on":[0,1]}]`;
 
 export async function planMission(goal: string): Promise<MissionPlan> {
   let subtasks: PlannerSubtask[];
@@ -68,6 +74,7 @@ export async function planMission(goal: string): Promise<MissionPlan> {
         status: 'pending',
         result: null,
         depends_on: [],
+        verification: 'Task completed without errors and goal is addressed.',
       }],
       needs_clarification: false,
     };
@@ -88,6 +95,7 @@ export async function planMission(goal: string): Promise<MissionPlan> {
       status: 'pending' as const,
       result: null,
       depends_on: [], // resolved below
+      verification: (st.verification ?? '').trim() || 'Task completed without errors and goal is addressed.',
     };
   });
 
