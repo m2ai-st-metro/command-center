@@ -143,6 +143,7 @@ export interface MissionTask {
   claimed_at: number | null;   // when dispatched to A2A
   completed_at: number | null;
   a2a_task_id: string | null;  // id returned by agent's A2A endpoint
+  skill: string | null;        // R2.4: optional skill hint for per-skill model routing
 }
 
 export interface CreateMissionTaskRequest {
@@ -150,6 +151,7 @@ export interface CreateMissionTaskRequest {
   title: string;
   prompt: string;
   priority?: number;
+  skill?: string;              // R2.4
 }
 
 // ── API Types ────────────────────────────────────────────────────────

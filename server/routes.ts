@@ -387,7 +387,7 @@ router.get('/routing/insights', (_req, res) => {
 // ── Mission Tasks (R2.1 — async fire-and-forget queue) ────────────────
 
 router.post('/tasks', async (req, res) => {
-  const { agent_id, title, prompt, priority } = req.body as CreateMissionTaskRequest;
+  const { agent_id, title, prompt, priority, skill } = req.body as CreateMissionTaskRequest;
   if (!agent_id?.trim()) {
     res.status(400).json({ error: 'agent_id is required' });
     return;
@@ -407,6 +407,7 @@ router.post('/tasks', async (req, res) => {
     title: title.trim(),
     prompt: prompt.trim(),
     priority,
+    skill: skill?.trim() || undefined,
   });
   // Fire-and-forget dispatch — returns immediately with queued task
   dispatchMissionTask(id).catch(err => console.error(`[tasks] dispatch error for ${id}:`, err));

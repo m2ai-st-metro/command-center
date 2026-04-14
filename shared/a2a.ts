@@ -44,6 +44,8 @@ export interface A2ATaskRequest {
   goal: string;
   /** Additional context (memory, prior results, constraints) */
   context?: string;
+  /** Optional skill hint. If provided, the agent may select a skill-specific model (R2.4). */
+  skill?: string;
   /** Who sent this task */
   sender: {
     id: string;

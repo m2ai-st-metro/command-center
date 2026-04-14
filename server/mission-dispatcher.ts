@@ -46,6 +46,7 @@ export async function dispatchMissionTask(taskId: string): Promise<void> {
     id: task.id,
     goal: task.prompt,
     context: conversationContext,
+    skill: task.skill ?? undefined,
     sender: { id: 'mission-dispatcher', name: 'CMD Mission Dispatcher' },
   };
 

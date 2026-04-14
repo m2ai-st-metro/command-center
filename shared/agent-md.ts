@@ -13,6 +13,10 @@ export interface AgentCapabilitiesConfig {
   canSpawnSubAgents: boolean;
   maxTurns: number;
   timeout: number;
+  /** Default model for this agent (e.g., claude-sonnet-4-6). From agent.md frontmatter. */
+  model?: string;
+  /** Optional per-skill model overrides. E.g. { 'simple-lookup': 'claude-haiku-4-5-20251001' } */
+  skillModels?: Record<string, string>;
 }
 
 /**

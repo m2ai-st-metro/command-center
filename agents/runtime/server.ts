@@ -44,7 +44,19 @@ function loadCapabilities(config: AgentConfig): AgentCapabilitiesConfig | undefi
     canSpawnSubAgents: (raw.canSpawnSubAgents as boolean | undefined) ?? false,
     maxTurns: (raw.maxTurns as number | undefined) ?? 25,
     timeout: (raw.timeout as number | undefined) ?? 900_000,
+    model: raw.model as string | undefined,
+    skillModels: raw.skillModels as Record<string, string> | undefined,
   };
+}
+
+/**
+ * Resolve the model to use for a task given an optional skill hint.
+ * Priority: skillModels[skill] -> model default -> undefined (let CLI default).
+ */
+function resolveModel(cap: AgentCapabilitiesConfig | undefined, skill?: string): string | undefined {
+  if (!cap) return undefined;
+  if (skill && cap.skillModels && cap.skillModels[skill]) return cap.skillModels[skill];
+  return cap.model;
 }
 
 /**
@@ -113,6 +125,12 @@ export function startAgentServer(config: AgentConfig): void {
 
     addTaskLog(task.id, 'info', `Task received from ${body.sender?.name ?? 'unknown'}`);
 
+    // R2.4: resolve per-skill model if skill hint provided
+    const resolvedModel = resolveModel(capabilities, body.skill);
+    const effectiveCapabilities: AgentCapabilitiesConfig | undefined = capabilities
+      ? { ...capabilities, model: resolvedModel }
+      : undefined;
+
     // Fire-and-forget execution — pass capabilities for dynamic tool/MCP selection
     executeTask(
       task.id,
@@ -120,7 +138,7 @@ export function startAgentServer(config: AgentConfig): void {
       systemPrompt,
       body.context,
       body.timeout_ms ?? config.timeout_ms,
-      capabilities,
+      effectiveCapabilities,
     ).catch((err) => {
       console.error(`Task ${task.id} execution error:`, err);
     });

@@ -69,6 +69,13 @@ function runClaudeCode(
       '--max-turns', String(maxTurns),
     ];
 
+    // R2.4: if a model is resolved (from frontmatter model or skillModels[skill]),
+    // pass --model. Otherwise let the CLI use its default.
+    if (capabilities?.model) {
+      args.push('--model', capabilities.model);
+      addTaskLog(taskId, 'info', `Model: ${capabilities.model}`);
+    }
+
     // Add MCP config if agent has MCP servers configured
     if (capabilities?.mcpConfigPath) {
       args.push('--mcp-config', capabilities.mcpConfigPath);

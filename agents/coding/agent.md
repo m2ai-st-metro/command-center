@@ -9,6 +9,8 @@ mcpServers: []
 canSpawnSubAgents: true
 maxTurns: 30
 timeout: 900000
+skillModels:
+  quick-ack: claude-haiku-4-5-20251001
 ---
 
 # Ravage — Coding Agent

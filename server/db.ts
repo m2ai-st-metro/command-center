@@ -154,6 +154,8 @@ export function initDatabase(): Database.Database {
   migrateSafe('ALTER TABLE routing_weights ADD COLUMN relevance_avg REAL');
   // missions: planner decomposition flag + judge verdict
   migrateSafe('ALTER TABLE missions ADD COLUMN judge_verdict TEXT');
+  // R2.4: mission_tasks gains optional skill hint for per-skill model routing
+  migrateSafe('ALTER TABLE mission_tasks ADD COLUMN skill TEXT');
 
   // Phase 5.2: Worker pool persistence
   db.exec(`
@@ -741,6 +743,7 @@ function mapMissionTaskRow(row: Record<string, unknown>): MissionTask {
     claimed_at: row.claimed_at as number | null,
     completed_at: row.completed_at as number | null,
     a2a_task_id: row.a2a_task_id as string | null,
+    skill: (row.skill as string | null | undefined) ?? null,
   };
 }
 
@@ -750,11 +753,12 @@ export function createMissionTask(task: {
   title: string;
   prompt: string;
   priority?: number;
+  skill?: string;
 }): MissionTask {
   const now = Math.floor(Date.now() / 1000);
   getDb().prepare(
-    `INSERT INTO mission_tasks (id, agent_id, title, prompt, priority, status, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?)`
-  ).run(task.id, task.agent_id, task.title, task.prompt, task.priority ?? 5, now);
+    `INSERT INTO mission_tasks (id, agent_id, title, prompt, priority, status, created_at, skill) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`
+  ).run(task.id, task.agent_id, task.title, task.prompt, task.priority ?? 5, now, task.skill ?? null);
   return getMissionTask(task.id)!;
 }
 
