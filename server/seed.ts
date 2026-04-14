@@ -14,12 +14,12 @@ export function seedDefaultAgents(): void {
     'stock'
   );
 
-  // Soundwave — Research Agent, A2A enabled
+  // Soundwave — Ingestion Meta-Agent, A2A enabled
   upsertAgent(
     'research',
     'Soundwave',
-    'Deep web research, database analysis, and structured reporting',
-    ['research', 'analysis', 'reporting', 'web-search'],
+    'Ingestion meta-agent for ST Metro — research-agents cron, IdeaForge integrity, anomaly investigation',
+    ['research', 'analysis', 'reporting', 'web-search', 'ingestion', 'ideaforge'],
     'named'
   );
   registerA2AAgent('research', 'http://localhost:3143');
@@ -34,12 +34,12 @@ export function seedDefaultAgents(): void {
   );
   registerA2AAgent('coding', 'http://localhost:3144');
 
-  // Content Agent — A2A enabled, writing specialist
+  // Creator — Content Creation Agent, A2A enabled, scoped to trades/service businesses
   upsertAgent(
     'content',
-    'Content Agent',
-    'Writing and content — blog posts, documentation, social media, email drafts',
-    ['content', 'writing', 'documentation', 'social-media', 'editing'],
+    'Creator',
+    'Content creation for trades and service businesses — social, SEO blogs, case studies, content calendars',
+    ['content', 'writing', 'social-media', 'seo', 'case-studies', 'content-calendar'],
     'named'
   );
   registerA2AAgent('content', 'http://localhost:3145');

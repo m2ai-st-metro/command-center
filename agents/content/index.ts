@@ -12,7 +12,7 @@ const config: AgentConfig = {
   skills: ['content', 'writing', 'documentation', 'social-media', 'editing'],
   type: 'named',
   port: parseInt(process.env.CONTENT_AGENT_PORT ?? '3145', 10),
-  system_prompt_path: path.resolve(__dirname, 'AGENT.md'),
+  system_prompt_path: path.resolve(__dirname, 'agent.md'),
   accepts: ['text/plain'],
   produces: ['text/plain', 'text/markdown'],
   timeout_ms: 600_000, // 10 min

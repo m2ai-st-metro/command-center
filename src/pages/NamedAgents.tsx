@@ -64,7 +64,7 @@ export function NamedAgents() {
         <div>
           <h1 className="text-2xl font-bold">Named Agents</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Tier 1 persistent agents with dedicated capabilities. Read-only — config lives in agent.config.json.
+            Tier 1 persistent agents with dedicated capabilities. Read-only — config lives in agent.md.
           </p>
         </div>
         <span className="px-3 py-1 bg-gray-800 text-gray-400 rounded text-sm">
@@ -75,7 +75,7 @@ export function NamedAgents() {
       {agents.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <p className="text-lg mb-2">No Named Agents registered</p>
-          <p className="text-sm">Named Agents are defined in agents/&lt;name&gt;/ with an agent.config.json file.</p>
+          <p className="text-sm">Named Agents are defined in agents/&lt;name&gt;/ with an agent.md file.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -236,7 +236,7 @@ function AgentCard({ agent, capabilities }: { agent: Agent; capabilities?: Capab
           </div>
         </div>
       ) : (
-        <p className="text-xs text-gray-600">No capabilities registered — missing agent.config.json</p>
+        <p className="text-xs text-gray-600">No capabilities registered — missing agent.md</p>
       )}
     </div>
   );

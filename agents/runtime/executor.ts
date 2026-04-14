@@ -81,7 +81,7 @@ function runClaudeCode(
     if (capabilities?.canSpawnSubAgents && !tools.includes('Agent')) {
       args.splice(args.indexOf('--allowedTools') + 1, 0);
       // Agent tool is already in the --allowedTools list if canSpawnSubAgents is true
-      // and was specified in agent.config.json tools array. No extra handling needed.
+      // and was specified in agent.md tools array. No extra handling needed.
     }
 
     // Build env without ANTHROPIC_API_KEY (use Max OAuth)

@@ -2,43 +2,48 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
-import type { AgentConfig, AgentCapabilitiesConfig } from './agent-config.js';
+import type { AgentConfig } from './agent-config.js';
+import type { AgentCapabilitiesConfig } from '../../shared/agent-md.js';
+import { readAgentMd } from '../../shared/agent-md.js';
 import type { A2AAgentCard, A2ATaskRequest, A2ATaskResponse, A2ATaskStatus } from '../../shared/a2a.js';
 import { createTask, getTask, addTaskLog } from './task-store.js';
 import { executeTask } from './executor.js';
 
 /**
- * Load capabilities from agent.config.json next to the agent's index.ts.
- * Returns undefined if no config file exists (Tier 2/3 fallback behavior).
+ * Load capabilities from agent.md frontmatter next to the agent's index.ts.
+ * Returns undefined if no agent.md is found or it has no frontmatter (Tier 2/3 fallback).
  */
 function loadCapabilities(config: AgentConfig): AgentCapabilitiesConfig | undefined {
-  // agent.config.json lives alongside AGENT.md and index.ts
+  // agent.md lives alongside index.ts
   const agentDir = config.system_prompt_path
     ? path.dirname(config.system_prompt_path)
     : undefined;
 
   if (!agentDir) return undefined;
 
-  const configPath = path.join(agentDir, 'agent.config.json');
-  if (!fs.existsSync(configPath)) return undefined;
+  const agentMdPath = config.system_prompt_path ?? path.join(agentDir, 'agent.md');
+  if (!fs.existsSync(agentMdPath)) return undefined;
 
-  const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  const { frontmatter } = readAgentMd(agentMdPath);
+  if (!frontmatter) return undefined;
+  const raw = frontmatter as Record<string, unknown>;
 
   // Resolve MCP config path
   let mcpConfigPath: string | undefined;
   const mcpJsonPath = path.join(agentDir, '.claude', 'mcp.json');
-  if (raw.mcpServers?.length > 0 && fs.existsSync(mcpJsonPath)) {
+  const mcpServers = (raw.mcpServers as string[] | undefined) ?? [];
+  if (mcpServers.length > 0 && fs.existsSync(mcpJsonPath)) {
     mcpConfigPath = mcpJsonPath;
   }
 
   return {
-    tier: raw.tier ?? 3,
-    tools: raw.tools ?? ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
-    mcpServers: raw.mcpServers ?? [],
+    tier: (raw.tier as number | undefined) ?? 3,
+    tools: (raw.tools as string[] | undefined) ?? ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
+    mcpServers,
     mcpConfigPath,
-    canSpawnSubAgents: raw.canSpawnSubAgents ?? false,
-    maxTurns: raw.maxTurns ?? 25,
-    timeout: raw.timeout ?? 900_000,
+    canSpawnSubAgents: (raw.canSpawnSubAgents as boolean | undefined) ?? false,
+    maxTurns: (raw.maxTurns as number | undefined) ?? 25,
+    timeout: (raw.timeout as number | undefined) ?? 900_000,
   };
 }
 
@@ -48,23 +53,24 @@ function loadCapabilities(config: AgentConfig): AgentCapabilitiesConfig | undefi
  * can be loaded to create a specialist agent.
  */
 export function startAgentServer(config: AgentConfig): void {
-  // Load system prompt
+  // Load system prompt — strip YAML frontmatter so only the body is fed to Claude
   let systemPrompt = config.system_prompt ?? '';
   if (config.system_prompt_path && !systemPrompt) {
     try {
-      systemPrompt = fs.readFileSync(config.system_prompt_path, 'utf-8');
+      const { body } = readAgentMd(config.system_prompt_path);
+      systemPrompt = body;
     } catch (err) {
       console.error(`Failed to load system prompt from ${config.system_prompt_path}:`, err);
       process.exit(1);
     }
   }
 
-  // Load capabilities from agent.config.json
+  // Load capabilities from agent.md frontmatter
   const capabilities = loadCapabilities(config);
   if (capabilities) {
     console.log(`[${config.name}] Capabilities loaded: tier ${capabilities.tier}, tools: [${capabilities.tools.join(', ')}], MCP: [${capabilities.mcpServers.join(', ')}]`);
   } else {
-    console.log(`[${config.name}] No agent.config.json found — using default capabilities`);
+    console.log(`[${config.name}] No agent.md frontmatter found — using default capabilities`);
   }
 
   const app = express();

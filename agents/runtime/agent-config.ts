@@ -1,5 +1,10 @@
+// Re-export shared agent.md helpers for backwards compatibility with local imports.
+// Canonical location is shared/agent-md.ts — both server/ and agents/runtime/ import from there.
+export { splitFrontmatter, readAgentMd } from '../../shared/agent-md.js';
+export type { AgentCapabilitiesConfig } from '../../shared/agent-md.js';
+
 /**
- * Agent configuration — loaded from index.ts + agent.config.json.
+ * Agent configuration — loaded from index.ts + agent.md frontmatter.
  */
 export interface AgentConfig {
   id: string;
@@ -8,7 +13,7 @@ export interface AgentConfig {
   skills: string[];
   type: 'named' | 'stock';
   port: number;
-  /** Path to the markdown system prompt file */
+  /** Path to the markdown file (with YAML frontmatter + system prompt body) */
   system_prompt_path?: string;
   /** Inline system prompt (alternative to file) */
   system_prompt?: string;
@@ -18,22 +23,8 @@ export interface AgentConfig {
   produces: string[];
   /** Task timeout in ms */
   timeout_ms: number;
-  /** Capabilities from agent.config.json (optional — Tier 2/3 won't have this) */
-  capabilities?: AgentCapabilitiesConfig;
-}
-
-/**
- * Capabilities declared in agent.config.json.
- * Controls which tools, MCP servers, and flags are passed to Claude Code.
- */
-export interface AgentCapabilitiesConfig {
-  tier: number;
-  tools: string[];
-  mcpServers: string[];
-  mcpConfigPath?: string;
-  canSpawnSubAgents: boolean;
-  maxTurns: number;
-  timeout: number;
+  /** Capabilities from agent.md frontmatter (optional — Tier 2/3 won't have this) */
+  capabilities?: import('../../shared/agent-md.js').AgentCapabilitiesConfig;
 }
 
 export const DEFAULT_CONFIG: Partial<AgentConfig> = {

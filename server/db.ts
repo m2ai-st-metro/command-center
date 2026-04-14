@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { readAgentMd } from '../shared/agent-md.js';
 
 // Find project root by looking for package.json
 function findProjectRoot(): string {
@@ -372,7 +373,7 @@ export function listAgentCapabilities(): AgentCapabilities[] {
 }
 
 /**
- * Sync agent.config.json files from agents/ directory into the capability registry.
+ * Sync agent.md frontmatter from agents/ directory into the capability registry.
  * Source of truth: files on disk. Registry is a runtime cache.
  */
 export function syncAgentCapabilities(projectRoot: string): number {
@@ -383,15 +384,18 @@ export function syncAgentCapabilities(projectRoot: string): number {
 
   let synced = 0;
   for (const dirName of agentDirs) {
-    const configPath = path.join(agentsDir, dirName, 'agent.config.json');
-    if (!fs.existsSync(configPath)) continue;
+    const agentMdPath = path.join(agentsDir, dirName, 'agent.md');
+    if (!fs.existsSync(agentMdPath)) continue;
 
-    const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const { frontmatter } = readAgentMd(agentMdPath);
+    if (!frontmatter) continue;
+    const raw = frontmatter;
 
     // Resolve MCP config path if agent has MCP servers
     let mcpConfigPath: string | null = null;
     const mcpJsonPath = path.join(agentsDir, dirName, '.claude', 'mcp.json');
-    if (raw.mcpServers?.length > 0 && fs.existsSync(mcpJsonPath)) {
+    const mcpServers = (raw.mcpServers as string[] | undefined) ?? [];
+    if (mcpServers.length > 0 && fs.existsSync(mcpJsonPath)) {
       mcpConfigPath = mcpJsonPath;
     }
 
@@ -400,13 +404,13 @@ export function syncAgentCapabilities(projectRoot: string): number {
 
     upsertAgentCapabilities({
       agent_id: agentId,
-      tier: raw.tier ?? 3,
-      tools: raw.tools ?? ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
-      mcp_servers: raw.mcpServers ?? [],
+      tier: (raw.tier as number | undefined) ?? 3,
+      tools: (raw.tools as string[] | undefined) ?? ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
+      mcp_servers: mcpServers,
       mcp_config_path: mcpConfigPath,
-      can_spawn_sub_agents: raw.canSpawnSubAgents ?? false,
-      max_turns: raw.maxTurns ?? 25,
-      timeout: raw.timeout ?? 900_000,
+      can_spawn_sub_agents: (raw.canSpawnSubAgents as boolean | undefined) ?? false,
+      max_turns: (raw.maxTurns as number | undefined) ?? 25,
+      timeout: (raw.timeout as number | undefined) ?? 900_000,
     });
     synced++;
   }
