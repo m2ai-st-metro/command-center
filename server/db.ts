@@ -124,6 +124,17 @@ export function initDatabase(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_mission_tasks_agent_status ON mission_tasks(agent_id, status);
     CREATE INDEX IF NOT EXISTS idx_mission_tasks_created ON mission_tasks(created_at);
+
+    -- R2.3: per-agent conversation log for memory continuity across tasks
+    CREATE TABLE IF NOT EXISTS conversation_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      task_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversation_agent_time ON conversation_log(agent_id, created_at DESC);
   `);
 
   // Phase 5 schema migrations — add quality scoring columns
@@ -655,6 +666,62 @@ export function updateMissionSubtask(
 }
 
 // ── Outcome Logging ──────────────────────────────────────────────────
+
+// ── Conversation Log (R2.3 — per-agent memory continuity) ──────────────
+
+const CONVERSATION_RETENTION = 20; // last N rows per agent
+
+export type ConversationRole = 'user' | 'assistant';
+
+export interface ConversationEntry {
+  agent_id: string;
+  role: ConversationRole;
+  content: string;
+  created_at: number;
+  task_id: string | null;
+}
+
+export function appendConversation(
+  agent_id: string,
+  role: ConversationRole,
+  content: string,
+  task_id?: string,
+): void {
+  const now = Math.floor(Date.now() / 1000);
+  getDb().prepare(
+    `INSERT INTO conversation_log (agent_id, role, content, created_at, task_id) VALUES (?, ?, ?, ?, ?)`
+  ).run(agent_id, role, content, now, task_id ?? null);
+
+  // Prune older rows beyond retention cap (per agent)
+  getDb().prepare(`
+    DELETE FROM conversation_log
+    WHERE agent_id = ?
+      AND id NOT IN (
+        SELECT id FROM conversation_log
+        WHERE agent_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      )
+  `).run(agent_id, agent_id, CONVERSATION_RETENTION);
+}
+
+export function getRecentConversation(agent_id: string, limit = CONVERSATION_RETENTION): ConversationEntry[] {
+  // Query DESC by (created_at, id) so insertion order breaks ties when two
+  // rows share the same unix-second timestamp; reverse to ASC so history
+  // reads chronologically.
+  const rows = getDb().prepare(
+    `SELECT agent_id, role, content, created_at, task_id FROM conversation_log WHERE agent_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`
+  ).all(agent_id, limit) as Array<Record<string, unknown>>;
+  return rows
+    .map(r => ({
+      agent_id: r.agent_id as string,
+      role: r.role as ConversationRole,
+      content: r.content as string,
+      created_at: r.created_at as number,
+      task_id: r.task_id as string | null,
+    }))
+    .reverse();
+}
 
 // ── Mission Tasks (R2.1 — async fire-and-forget queue) ────────────────
 

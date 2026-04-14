@@ -2,9 +2,19 @@ import {
   getMissionTask,
   listMissionTasksByStatus,
   updateMissionTask,
+  appendConversation,
+  getRecentConversation,
+  type ConversationEntry,
 } from './db.js';
 import { getA2AEndpoint } from './orchestrator.js';
 import type { A2ATaskRequest, A2ATaskStatus } from '../shared/a2a.js';
+
+/** Format prior conversation as a context block for the agent's next task. */
+function buildConversationContext(history: ConversationEntry[]): string | undefined {
+  if (history.length === 0) return undefined;
+  const lines = history.map(e => `${e.role}: ${e.content}`);
+  return `Previous exchanges with you (most recent last):\n${lines.join('\n\n')}`;
+}
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -28,9 +38,14 @@ export async function dispatchMissionTask(taskId: string): Promise<void> {
     return;
   }
 
+  // R2.3: inject prior conversation so the agent has memory continuity
+  const history = getRecentConversation(task.agent_id);
+  const conversationContext = buildConversationContext(history);
+
   const body: A2ATaskRequest = {
     id: task.id,
     goal: task.prompt,
+    context: conversationContext,
     sender: { id: 'mission-dispatcher', name: 'CMD Mission Dispatcher' },
   };
 
@@ -90,11 +105,15 @@ async function pollRunningTasks(): Promise<void> {
 
       const status = await res.json() as A2ATaskStatus;
       if (status.state === 'completed') {
+        const result = status.result ?? '(no output)';
         updateMissionTask(task.id, {
           status: 'completed',
-          result: status.result ?? '(no output)',
+          result,
           completed_at: Math.floor(Date.now() / 1000),
         });
+        // R2.3: persist the exchange so future tasks for this agent have context
+        appendConversation(task.agent_id, 'user', task.prompt, task.id);
+        appendConversation(task.agent_id, 'assistant', result, task.id);
       } else if (status.state === 'failed') {
         updateMissionTask(task.id, {
           status: 'failed',
