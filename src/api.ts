@@ -44,9 +44,9 @@ export const api = {
 
   // Schedules
   listSchedules: () => fetchJson<{ schedules: unknown[] }>('/schedules'),
-  createSchedule: (goal: string, interval: string) =>
-    fetchJson<{ schedule: unknown }>('/schedules', { method: 'POST', body: JSON.stringify({ goal, interval }) }),
-  updateSchedule: (id: string, data: { enabled?: boolean; goal?: string; interval?: string }) =>
+  createSchedule: (goal: string, interval?: string, cron_expr?: string) =>
+    fetchJson<{ schedule: unknown }>('/schedules', { method: 'POST', body: JSON.stringify({ goal, interval, cron_expr }) }),
+  updateSchedule: (id: string, data: { enabled?: boolean; goal?: string; interval?: string; cron_expr?: string }) =>
     fetchJson<{ message: string }>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteSchedule: (id: string) =>
     fetchJson<{ message: string }>(`/schedules/${id}`, { method: 'DELETE' }),

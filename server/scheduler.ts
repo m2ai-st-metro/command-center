@@ -1,4 +1,6 @@
+import { CronExpressionParser } from 'cron-parser';
 import { listSchedules, updateSchedule } from './db.js';
+import type { Schedule } from './db.js';
 import { proposeMission, approveMission } from './orchestrator.js';
 
 /**
@@ -32,6 +34,27 @@ export function nextRunFromInterval(interval: string, fromMs = Date.now()): numb
   return Math.floor((fromMs + ms) / 1000);
 }
 
+/** Calculate next run timestamp from a cron expression (5-field standard cron) */
+export function nextRunFromCron(expr: string, fromMs = Date.now()): number | null {
+  try {
+    const parsed = CronExpressionParser.parse(expr, { currentDate: new Date(fromMs) });
+    return Math.floor(parsed.next().getTime() / 1000);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return the next run unix timestamp for a schedule, branching on cadence_type.
+ * Pass-through to nextRunFromInterval for legacy interval rows.
+ */
+export function nextRunFromSchedule(schedule: Pick<Schedule, 'cron' | 'cadence_type' | 'cron_expr'>, fromMs = Date.now()): number | null {
+  if (schedule.cadence_type === 'cron' && schedule.cron_expr) {
+    return nextRunFromCron(schedule.cron_expr, fromMs);
+  }
+  return nextRunFromInterval(schedule.cron, fromMs);
+}
+
 /**
  * Create and immediately auto-approve a mission for the given goal.
  * Does NOT touch next_run_at -- callers decide what to update in the DB.
@@ -60,7 +83,7 @@ async function tick(): Promise<void> {
       const missionId = await runScheduleNow(schedule.goal);
 
       // Calculate next run
-      const nextRun = nextRunFromInterval(schedule.cron);
+      const nextRun = nextRunFromSchedule(schedule);
 
       updateSchedule(schedule.id, {
         last_run_at: now,
@@ -68,9 +91,9 @@ async function tick(): Promise<void> {
         last_mission_id: missionId,
       });
 
-      // Disable if we can't calculate next run (bad interval)
+      // Disable if we can't calculate next run (bad expression)
       if (!nextRun) {
-        console.warn(`[Scheduler] Cannot parse interval "${schedule.cron}" — disabling schedule ${schedule.id}`);
+        console.warn(`[Scheduler] Cannot compute next run for schedule ${schedule.id} — disabling`);
         updateSchedule(schedule.id, { enabled: false });
       }
     } catch (err) {

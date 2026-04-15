@@ -23,7 +23,7 @@ import {
 } from './db.js';
 import { dispatchMissionTask } from './mission-dispatcher.js';
 import type { CreateMissionTaskRequest } from '../shared/types.js';
-import { nextRunFromInterval, runScheduleNow } from './scheduler.js';
+import { nextRunFromInterval, nextRunFromCron, runScheduleNow } from './scheduler.js';
 import { chatWithData } from './chat.js';
 import {
   proposeMission,
@@ -464,37 +464,77 @@ router.get('/schedules', (_req, res) => {
 });
 
 router.post('/schedules', (req, res) => {
-  const { goal, interval } = req.body as { goal?: string; interval?: string };
+  const { goal, interval, cron_expr } = req.body as { goal?: string; interval?: string; cron_expr?: string };
   if (!goal?.trim()) {
     res.status(400).json({ error: 'goal is required' });
     return;
   }
-  if (!interval?.trim()) {
-    res.status(400).json({ error: 'interval is required (e.g. "30m", "1h", "24h")' });
+  if (interval && cron_expr) {
+    res.status(400).json({ error: 'supply either interval or cron_expr, not both' });
     return;
   }
-  const nextRun = nextRunFromInterval(interval.trim());
-  if (!nextRun) {
-    res.status(400).json({ error: `Invalid interval "${interval}". Use: 5m, 1h, 24h, 7d` });
+  if (!interval?.trim() && !cron_expr?.trim()) {
+    res.status(400).json({ error: 'supply either interval (e.g. "1h") or cron_expr (e.g. "0 9 * * *")' });
     return;
   }
+
+  let nextRun: number | null;
+  let cadenceType: 'interval' | 'cron';
+  let cronDisplay: string;
+  let cronExprValue: string | null = null;
+
+  if (cron_expr?.trim()) {
+    nextRun = nextRunFromCron(cron_expr.trim());
+    if (!nextRun) {
+      res.status(400).json({ error: `Invalid cron expression "${cron_expr}"` });
+      return;
+    }
+    cadenceType = 'cron';
+    cronDisplay = cron_expr.trim();
+    cronExprValue = cron_expr.trim();
+  } else {
+    nextRun = nextRunFromInterval(interval!.trim());
+    if (!nextRun) {
+      res.status(400).json({ error: `Invalid interval "${interval}". Use: 5m, 1h, 24h, 7d` });
+      return;
+    }
+    cadenceType = 'interval';
+    cronDisplay = interval!.trim();
+  }
+
   const id = uuidv4();
-  createSchedule(id, goal.trim(), interval.trim(), nextRun);
-  res.status(201).json({ schedule: { id, goal: goal.trim(), cron: interval.trim(), enabled: true, next_run_at: nextRun } });
+  createSchedule(id, goal.trim(), cronDisplay, nextRun, { cadence_type: cadenceType, cron_expr: cronExprValue });
+  res.status(201).json({ schedule: { id, goal: goal.trim(), cron: cronDisplay, cadence_type: cadenceType, cron_expr: cronExprValue, enabled: true, next_run_at: nextRun } });
 });
 
 router.put('/schedules/:id', (req, res) => {
-  const { enabled, goal, interval } = req.body as { enabled?: boolean; goal?: string; interval?: string };
+  const { enabled, goal, interval, cron_expr } = req.body as { enabled?: boolean; goal?: string; interval?: string; cron_expr?: string };
   const updates: Record<string, unknown> = {};
   if (enabled !== undefined) updates.enabled = enabled;
   if (goal) updates.goal = goal;
-  if (interval) {
+  if (interval && cron_expr) {
+    res.status(400).json({ error: 'supply either interval or cron_expr, not both' });
+    return;
+  }
+  if (cron_expr) {
+    const nextRun = nextRunFromCron(cron_expr);
+    if (!nextRun) {
+      res.status(400).json({ error: `Invalid cron expression "${cron_expr}"` });
+      return;
+    }
+    updates.cron = cron_expr;
+    updates.cadence_type = 'cron';
+    updates.cron_expr = cron_expr;
+    updates.next_run_at = nextRun;
+  } else if (interval) {
     const nextRun = nextRunFromInterval(interval);
     if (!nextRun) {
       res.status(400).json({ error: `Invalid interval "${interval}"` });
       return;
     }
     updates.cron = interval;
+    updates.cadence_type = 'interval';
+    updates.cron_expr = null;
     updates.next_run_at = nextRun;
   }
   updateSchedule(req.params.id, updates as Parameters<typeof updateSchedule>[1]);

@@ -160,6 +160,11 @@ export function initDatabase(): Database.Database {
   migrateSafe('ALTER TABLE mission_tasks ADD COLUMN repo_path TEXT');
   migrateSafe('ALTER TABLE mission_tasks ADD COLUMN worktree_path TEXT');
   migrateSafe('ALTER TABLE mission_tasks ADD COLUMN branch_name TEXT');
+  // 024: richer schedule cadence (cron expressions)
+  migrateSafe("ALTER TABLE schedules ADD COLUMN cadence_type TEXT NOT NULL DEFAULT 'interval'");
+  migrateSafe('ALTER TABLE schedules ADD COLUMN cron_expr TEXT');
+  migrateSafe('ALTER TABLE schedules ADD COLUMN agent_id TEXT');
+  migrateSafe('ALTER TABLE schedules ADD COLUMN ends_at INTEGER');
 
   // Phase 5.2: Worker pool persistence
   db.exec(`
@@ -547,6 +552,10 @@ export interface Schedule {
   id: string;
   goal: string;
   cron: string;
+  cadence_type: 'interval' | 'cron';
+  cron_expr: string | null;
+  agent_id: string | null;
+  ends_at: number | null;
   enabled: boolean;
   last_run_at: number | null;
   next_run_at: number | null;
@@ -554,11 +563,14 @@ export interface Schedule {
   created_at: number;
 }
 
-export function createSchedule(id: string, goal: string, cron: string, nextRunAt: number): void {
+export function createSchedule(
+  id: string, goal: string, cron: string, nextRunAt: number,
+  opts?: { cadence_type?: 'interval' | 'cron'; cron_expr?: string | null },
+): void {
   const now = Math.floor(Date.now() / 1000);
   getDb().prepare(
-    'INSERT INTO schedules (id, goal, cron, enabled, next_run_at, created_at) VALUES (?, ?, ?, 1, ?, ?)'
-  ).run(id, goal, cron, nextRunAt, now);
+    'INSERT INTO schedules (id, goal, cron, enabled, next_run_at, created_at, cadence_type, cron_expr) VALUES (?, ?, ?, 1, ?, ?, ?, ?)'
+  ).run(id, goal, cron, nextRunAt, now, opts?.cadence_type ?? 'interval', opts?.cron_expr ?? null);
 }
 
 export function listSchedules(): Schedule[] {
@@ -567,6 +579,10 @@ export function listSchedules(): Schedule[] {
     id: row.id as string,
     goal: row.goal as string,
     cron: row.cron as string,
+    cadence_type: ((row.cadence_type as string | null) ?? 'interval') as 'interval' | 'cron',
+    cron_expr: (row.cron_expr as string | null) ?? null,
+    agent_id: (row.agent_id as string | null) ?? null,
+    ends_at: (row.ends_at as number | null) ?? null,
     enabled: (row.enabled as number) === 1,
     last_run_at: row.last_run_at as number | null,
     next_run_at: row.next_run_at as number | null,
@@ -575,7 +591,10 @@ export function listSchedules(): Schedule[] {
   }));
 }
 
-export function updateSchedule(id: string, updates: Partial<{ goal: string; cron: string; enabled: boolean; last_run_at: number; next_run_at: number; last_mission_id: string }>): void {
+export function updateSchedule(id: string, updates: Partial<{
+  goal: string; cron: string; cadence_type: string; cron_expr: string | null;
+  enabled: boolean; last_run_at: number; next_run_at: number; last_mission_id: string;
+}>): void {
   const fields = Object.entries(updates).filter(([, v]) => v !== undefined);
   if (fields.length === 0) return;
   const sets = fields.map(([k]) => `${k} = ?`).join(', ');

@@ -1,10 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
+import { CronExpressionParser } from 'cron-parser';
 import { api } from '../api';
 
 interface Schedule {
   id: string;
   goal: string;
   cron: string;
+  cadence_type: 'interval' | 'cron';
+  cron_expr: string | null;
   enabled: boolean;
   last_run_at: number | null;
   next_run_at: number | null;
@@ -21,11 +24,31 @@ const INTERVAL_PRESETS = [
   { label: '7 days', value: '7d' },
 ];
 
+const CRON_PRESETS = [
+  { label: 'Daily 9am', value: '0 9 * * *' },
+  { label: 'Weekly Mon 9am', value: '0 9 * * 1' },
+  { label: 'Weekdays 8am', value: '0 8 * * 1-5' },
+  { label: 'Every 4h', value: '0 */4 * * *' },
+];
+
+function getNextCronRuns(expr: string, count = 3): Date[] | null {
+  try {
+    const parsed = CronExpressionParser.parse(expr);
+    const runs: Date[] = [];
+    for (let i = 0; i < count; i++) runs.push(parsed.next().toDate());
+    return runs;
+  } catch {
+    return null;
+  }
+}
+
 export function Schedules() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [creating, setCreating] = useState(false);
   const [goal, setGoal] = useState('');
+  const [cadenceType, setCadenceType] = useState<'interval' | 'cron'>('interval');
   const [interval, setInterval_] = useState('1h');
+  const [cronExpr, setCronExpr] = useState('0 9 * * *');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState<Record<string, boolean>>({});
@@ -42,11 +65,15 @@ export function Schedules() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!goal.trim() || !interval.trim()) return;
+    if (!goal.trim()) return;
     setSaving(true);
     setError(null);
     try {
-      await api.createSchedule(goal.trim(), interval.trim());
+      if (cadenceType === 'cron') {
+        await api.createSchedule(goal.trim(), undefined, cronExpr.trim());
+      } else {
+        await api.createSchedule(goal.trim(), interval.trim(), undefined);
+      }
       setGoal('');
       setCreating(false);
       load();
@@ -101,6 +128,9 @@ export function Schedules() {
     return `in ${days}d ${hrs % 24}h`;
   };
 
+  // Derive Next 3 runs for cron preview in the form
+  const cronPreviewRuns = cadenceType === 'cron' ? getNextCronRuns(cronExpr) : null;
+
   return (
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-6">
@@ -137,33 +167,97 @@ export function Schedules() {
                 className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
             </div>
+
+            {/* Cadence type radio */}
             <div>
-              <label className="block text-sm text-gray-400 mb-2">Interval</label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {INTERVAL_PRESETS.map(p => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    onClick={() => setInterval_(p.value)}
-                    className={`px-3 py-1 rounded text-sm transition-colors ${
-                      interval === p.value ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+              <label className="block text-sm text-gray-400 mb-2">Cadence</label>
+              <div className="flex gap-4 mb-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    value="interval"
+                    checked={cadenceType === 'interval'}
+                    onChange={() => setCadenceType('interval')}
+                    className="accent-blue-500"
+                  />
+                  <span className="text-sm text-gray-300">Interval</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    value="cron"
+                    checked={cadenceType === 'cron'}
+                    onChange={() => setCadenceType('cron')}
+                    className="accent-blue-500"
+                  />
+                  <span className="text-sm text-gray-300">Cron</span>
+                </label>
               </div>
-              <input
-                type="text"
-                value={interval}
-                onChange={e => setInterval_(e.target.value)}
-                placeholder="Custom: 15m, 2h, 3d"
-                className="w-48 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500"
-              />
+
+              {cadenceType === 'interval' ? (
+                <>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {INTERVAL_PRESETS.map(p => (
+                      <button
+                        key={p.value}
+                        type="button"
+                        onClick={() => setInterval_(p.value)}
+                        className={`px-3 py-1 rounded text-sm transition-colors ${
+                          interval === p.value ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={interval}
+                    onChange={e => setInterval_(e.target.value)}
+                    placeholder="Custom: 15m, 2h, 3d"
+                    className="w-48 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  />
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {CRON_PRESETS.map(p => (
+                      <button
+                        key={p.value}
+                        type="button"
+                        onClick={() => setCronExpr(p.value)}
+                        className={`px-3 py-1 rounded text-sm transition-colors ${
+                          cronExpr === p.value ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={cronExpr}
+                    onChange={e => setCronExpr(e.target.value)}
+                    placeholder="0 9 * * * (min hr dom mon dow)"
+                    className="w-64 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                  {cronPreviewRuns ? (
+                    <div className="mt-2 text-xs text-gray-500">
+                      Next 3 runs:
+                      {cronPreviewRuns.map((d, i) => (
+                        <span key={i} className="ml-2 text-gray-400">{d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs text-red-400">Invalid cron expression</p>
+                  )}
+                </>
+              )}
             </div>
+
             <button
               type="submit"
-              disabled={saving || !goal.trim()}
+              disabled={saving || !goal.trim() || (cadenceType === 'cron' && !cronPreviewRuns)}
               className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-medium transition-colors"
             >
               {saving ? 'Creating...' : 'Create Schedule'}
@@ -193,7 +287,10 @@ export function Schedules() {
                     <span className="text-gray-100 font-medium">{s.goal}</span>
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-                    <span>Every <span className="text-gray-300">{s.cron}</span></span>
+                    <span>
+                      {s.cadence_type === 'cron' ? 'Cron' : 'Every'}{' '}
+                      <span className="text-gray-300 font-mono">{s.cadence_type === 'cron' ? s.cron_expr ?? s.cron : s.cron}</span>
+                    </span>
                     {s.next_run_at && s.enabled && (
                       <span>Next: <span className="text-gray-300">{timeUntil(s.next_run_at)}</span></span>
                     )}
