@@ -150,6 +150,8 @@ export interface MissionTask {
   repo_path: string | null;    // absolute path to the source git repo (caller-supplied)
   worktree_path: string | null; // `/tmp/cmd-mt-<id8>` — assigned by dispatcher pre-POST
   branch_name: string | null;   // `cmd-mt-<id8>` — branch created in worktree
+  // 026: provenance tag — 'trigger' means dispatched by trigger-eval; excluded from re-firing
+  source: string | null;
 }
 
 export interface CreateMissionTaskRequest {

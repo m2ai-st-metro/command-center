@@ -21,6 +21,14 @@ import {
   getMissionTask,
   listMissionTasks,
   updateMissionTask,
+  createTrigger,
+  listTriggers,
+  getTrigger,
+  updateTrigger,
+  deleteTrigger,
+  listTriggerFires,
+  type TriggerConditionType,
+  type TriggerActionType,
 } from './db.js';
 import { dispatchMissionTask } from './mission-dispatcher.js';
 import type { CreateMissionTaskRequest } from '../shared/types.js';
@@ -750,4 +758,133 @@ router.get('/sky-lynx/recs', (_req, res) => {
   } finally {
     db?.close();
   }
+});
+
+// ── Triggers (026) ────────────────────────────────────────────────────
+
+const VALID_CONDITION_TYPES: TriggerConditionType[] = [
+  'mission_failed',
+  'schedule_missed',
+  'agent_offline',
+];
+const VALID_ACTION_TYPES: TriggerActionType[] = [
+  'dispatch_mission_task',
+  'notify_log_file',
+];
+
+router.get('/triggers', (_req, res) => {
+  res.json({ triggers: listTriggers() });
+});
+
+router.post('/triggers', (req, res) => {
+  const {
+    name,
+    condition_type,
+    condition_config,
+    action_type,
+    action_config,
+    cooldown_seconds,
+  } = req.body as {
+    name?: string;
+    condition_type?: string;
+    condition_config?: unknown;
+    action_type?: string;
+    action_config?: unknown;
+    cooldown_seconds?: number;
+  };
+  if (!name?.trim()) {
+    res.status(400).json({ error: 'name is required' });
+    return;
+  }
+  if (!condition_type || !VALID_CONDITION_TYPES.includes(condition_type as TriggerConditionType)) {
+    res.status(400).json({ error: `condition_type must be one of: ${VALID_CONDITION_TYPES.join(', ')}` });
+    return;
+  }
+  if (!action_type || !VALID_ACTION_TYPES.includes(action_type as TriggerActionType)) {
+    res.status(400).json({ error: `action_type must be one of: ${VALID_ACTION_TYPES.join(', ')}` });
+    return;
+  }
+  if (condition_config === null || typeof condition_config !== 'object' || Array.isArray(condition_config)) {
+    res.status(400).json({ error: 'condition_config must be an object' });
+    return;
+  }
+  if (action_config === null || typeof action_config !== 'object' || Array.isArray(action_config)) {
+    res.status(400).json({ error: 'action_config must be an object' });
+    return;
+  }
+  const id = uuidv4();
+  createTrigger({
+    id,
+    name: name.trim(),
+    condition_type: condition_type as TriggerConditionType,
+    condition_config: condition_config as Record<string, unknown>,
+    action_type: action_type as TriggerActionType,
+    action_config: action_config as Record<string, unknown>,
+    cooldown_seconds: typeof cooldown_seconds === 'number' ? cooldown_seconds : undefined,
+  });
+  const trigger = getTrigger(id);
+  res.status(201).json({ trigger });
+});
+
+router.get('/triggers/:id', (req, res) => {
+  const trigger = getTrigger(req.params.id);
+  if (!trigger) {
+    res.status(404).json({ error: 'trigger not found' });
+    return;
+  }
+  res.json({ trigger });
+});
+
+router.patch('/triggers/:id', (req, res) => {
+  const existing = getTrigger(req.params.id);
+  if (!existing) {
+    res.status(404).json({ error: 'trigger not found' });
+    return;
+  }
+  const body = req.body as {
+    name?: string;
+    enabled?: boolean;
+    condition_config?: unknown;
+    action_config?: unknown;
+    cooldown_seconds?: number;
+  };
+  const updates: Parameters<typeof updateTrigger>[1] = {};
+  if (typeof body.name === 'string') updates.name = body.name.trim();
+  if (typeof body.enabled === 'boolean') updates.enabled = body.enabled;
+  if (body.condition_config !== undefined) {
+    if (body.condition_config === null || typeof body.condition_config !== 'object' || Array.isArray(body.condition_config)) {
+      res.status(400).json({ error: 'condition_config must be an object' });
+      return;
+    }
+    updates.condition_config = body.condition_config as Record<string, unknown>;
+  }
+  if (body.action_config !== undefined) {
+    if (body.action_config === null || typeof body.action_config !== 'object' || Array.isArray(body.action_config)) {
+      res.status(400).json({ error: 'action_config must be an object' });
+      return;
+    }
+    updates.action_config = body.action_config as Record<string, unknown>;
+  }
+  if (typeof body.cooldown_seconds === 'number') updates.cooldown_seconds = body.cooldown_seconds;
+  updateTrigger(req.params.id, updates);
+  res.json({ trigger: getTrigger(req.params.id) });
+});
+
+router.delete('/triggers/:id', (req, res) => {
+  const ok = deleteTrigger(req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: 'trigger not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+router.get('/triggers/:id/fires', (req, res) => {
+  const trigger = getTrigger(req.params.id);
+  if (!trigger) {
+    res.status(404).json({ error: 'trigger not found' });
+    return;
+  }
+  const limit = Math.min(parseInt(String(req.query.limit ?? '20'), 10) || 20, 200);
+  res.json({ fires: listTriggerFires(req.params.id, limit) });
 });

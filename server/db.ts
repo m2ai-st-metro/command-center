@@ -166,6 +166,36 @@ export function initDatabase(): Database.Database {
   migrateSafe('ALTER TABLE schedules ADD COLUMN agent_id TEXT');
   migrateSafe('ALTER TABLE schedules ADD COLUMN ends_at INTEGER');
 
+  // 026: Triggers — event→action subsystem
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS triggers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      condition_type TEXT NOT NULL,
+      condition_config TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      action_config TEXT NOT NULL,
+      cooldown_seconds INTEGER NOT NULL DEFAULT 300,
+      last_fired_at INTEGER,
+      fire_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_triggers_enabled_type ON triggers(enabled, condition_type);
+
+    CREATE TABLE IF NOT EXISTS trigger_fires (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trigger_id TEXT NOT NULL,
+      fired_at INTEGER NOT NULL,
+      event_payload TEXT NOT NULL,
+      action_result TEXT,
+      FOREIGN KEY (trigger_id) REFERENCES triggers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_trigger_fires_trigger ON trigger_fires(trigger_id, fired_at DESC);
+  `);
+  // 026: mission_tasks gains a source column so trigger-dispatched tasks can be excluded from re-firing
+  migrateSafe("ALTER TABLE mission_tasks ADD COLUMN source TEXT");
+
   // Phase 5.2: Worker pool persistence
   db.exec(`
     CREATE TABLE IF NOT EXISTS worker_slots (
@@ -607,6 +637,142 @@ export function deleteSchedule(id: string): boolean {
   return result.changes > 0;
 }
 
+// ── Triggers (026) ───────────────────────────────────────────────────
+
+export type TriggerConditionType = 'mission_failed' | 'schedule_missed' | 'agent_offline';
+export type TriggerActionType = 'dispatch_mission_task' | 'notify_log_file';
+
+export interface Trigger {
+  id: string;
+  name: string;
+  enabled: boolean;
+  condition_type: TriggerConditionType;
+  condition_config: Record<string, unknown>;
+  action_type: TriggerActionType;
+  action_config: Record<string, unknown>;
+  cooldown_seconds: number;
+  last_fired_at: number | null;
+  fire_count: number;
+  created_at: number;
+}
+
+export interface TriggerFire {
+  id: number;
+  trigger_id: string;
+  fired_at: number;
+  event_payload: Record<string, unknown>;
+  action_result: string | null;
+}
+
+function mapTriggerRow(row: Record<string, unknown>): Trigger {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    enabled: (row.enabled as number) === 1,
+    condition_type: row.condition_type as TriggerConditionType,
+    condition_config: JSON.parse((row.condition_config as string) || '{}'),
+    action_type: row.action_type as TriggerActionType,
+    action_config: JSON.parse((row.action_config as string) || '{}'),
+    cooldown_seconds: row.cooldown_seconds as number,
+    last_fired_at: (row.last_fired_at as number | null) ?? null,
+    fire_count: row.fire_count as number,
+    created_at: row.created_at as number,
+  };
+}
+
+export function createTrigger(t: {
+  id: string;
+  name: string;
+  condition_type: TriggerConditionType;
+  condition_config: Record<string, unknown>;
+  action_type: TriggerActionType;
+  action_config: Record<string, unknown>;
+  cooldown_seconds?: number;
+}): void {
+  const now = Math.floor(Date.now() / 1000);
+  getDb().prepare(
+    `INSERT INTO triggers (id, name, enabled, condition_type, condition_config,
+                           action_type, action_config, cooldown_seconds, fire_count, created_at)
+     VALUES (?, ?, 1, ?, ?, ?, ?, ?, 0, ?)`
+  ).run(
+    t.id, t.name, t.condition_type, JSON.stringify(t.condition_config),
+    t.action_type, JSON.stringify(t.action_config), t.cooldown_seconds ?? 300, now,
+  );
+}
+
+export function listTriggers(): Trigger[] {
+  const rows = getDb().prepare('SELECT * FROM triggers ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
+  return rows.map(mapTriggerRow);
+}
+
+export function listEnabledTriggersByCondition(conditionType: TriggerConditionType): Trigger[] {
+  const rows = getDb().prepare(
+    'SELECT * FROM triggers WHERE enabled = 1 AND condition_type = ? ORDER BY created_at ASC'
+  ).all(conditionType) as Array<Record<string, unknown>>;
+  return rows.map(mapTriggerRow);
+}
+
+export function getTrigger(id: string): Trigger | null {
+  const row = getDb().prepare('SELECT * FROM triggers WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  return row ? mapTriggerRow(row) : null;
+}
+
+export function updateTrigger(id: string, updates: Partial<{
+  name: string;
+  enabled: boolean;
+  condition_config: Record<string, unknown>;
+  action_config: Record<string, unknown>;
+  cooldown_seconds: number;
+}>): void {
+  const fields = Object.entries(updates).filter(([, v]) => v !== undefined);
+  if (fields.length === 0) return;
+  const sets = fields.map(([k]) => `${k} = ?`).join(', ');
+  const values = fields.map(([k, v]) => {
+    if (k === 'enabled') return v ? 1 : 0;
+    if (k === 'condition_config' || k === 'action_config') return JSON.stringify(v);
+    return v;
+  });
+  getDb().prepare(`UPDATE triggers SET ${sets} WHERE id = ?`).run(...values, id);
+}
+
+export function deleteTrigger(id: string): boolean {
+  const db = getDb();
+  db.prepare('DELETE FROM trigger_fires WHERE trigger_id = ?').run(id);
+  const result = db.prepare('DELETE FROM triggers WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+export function markTriggerFired(id: string, firedAt: number): void {
+  getDb().prepare(
+    'UPDATE triggers SET last_fired_at = ?, fire_count = fire_count + 1 WHERE id = ?'
+  ).run(firedAt, id);
+}
+
+export function recordTriggerFire(
+  triggerId: string,
+  firedAt: number,
+  eventPayload: Record<string, unknown>,
+  actionResult: string | null,
+): void {
+  getDb().prepare(
+    `INSERT INTO trigger_fires (trigger_id, fired_at, event_payload, action_result)
+     VALUES (?, ?, ?, ?)`
+  ).run(triggerId, firedAt, JSON.stringify(eventPayload), actionResult);
+}
+
+export function listTriggerFires(triggerId: string, limit = 20): TriggerFire[] {
+  const rows = getDb().prepare(
+    'SELECT * FROM trigger_fires WHERE trigger_id = ? ORDER BY fired_at DESC LIMIT ?'
+  ).all(triggerId, limit) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: row.id as number,
+    trigger_id: row.trigger_id as string,
+    fired_at: row.fired_at as number,
+    event_payload: JSON.parse((row.event_payload as string) || '{}'),
+    action_result: (row.action_result as string | null) ?? null,
+  }));
+}
+
 // ── Worker Pool (Phase 5.2) ──────────────────────────────────────────
 
 import type { WorkerSlot } from '../shared/types.js';
@@ -770,6 +936,7 @@ function mapMissionTaskRow(row: Record<string, unknown>): MissionTask {
     repo_path: (row.repo_path as string | null | undefined) ?? null,
     worktree_path: (row.worktree_path as string | null | undefined) ?? null,
     branch_name: (row.branch_name as string | null | undefined) ?? null,
+    source: (row.source as string | null | undefined) ?? null,
   };
 }
 
@@ -781,11 +948,12 @@ export function createMissionTask(task: {
   priority?: number;
   skill?: string;
   repo_path?: string;
+  source?: string;
 }): MissionTask {
   const now = Math.floor(Date.now() / 1000);
   getDb().prepare(
-    `INSERT INTO mission_tasks (id, agent_id, title, prompt, priority, status, created_at, skill, repo_path) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?)`
-  ).run(task.id, task.agent_id, task.title, task.prompt, task.priority ?? 5, now, task.skill ?? null, task.repo_path ?? null);
+    `INSERT INTO mission_tasks (id, agent_id, title, prompt, priority, status, created_at, skill, repo_path, source) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`
+  ).run(task.id, task.agent_id, task.title, task.prompt, task.priority ?? 5, now, task.skill ?? null, task.repo_path ?? null, task.source ?? null);
   return getMissionTask(task.id)!;
 }
 

@@ -8,6 +8,8 @@ import { seedDefaultAgents } from './seed.js';
 import { router } from './routes.js';
 import { startScheduler } from './scheduler.js';
 import { startMissionDispatcher } from './mission-dispatcher.js';
+import { startTriggerEvaluator } from './trigger-eval.js';
+import { startTriggerPoll } from './trigger-poll.js';
 
 // Find project root
 function findProjectRoot(): string {
@@ -53,4 +55,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Access from Surface: http://10.0.0.46:${PORT}`);
   startScheduler();
   startMissionDispatcher();
+  startTriggerEvaluator();
+  startTriggerPoll();
 });

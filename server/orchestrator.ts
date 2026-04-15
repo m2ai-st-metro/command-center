@@ -40,6 +40,11 @@ export function getA2AEndpoint(agentId: string): string | undefined {
   return a2aEndpoints.get(agentId);
 }
 
+/** List all registered A2A (agentId, endpoint) pairs. Used by trigger-poll (026). */
+export function listA2AEndpoints(): Array<[string, string]> {
+  return Array.from(a2aEndpoints.entries());
+}
+
 /** Try to discover an agent's A2A card. Returns true if successful. */
 export async function discoverAgent(endpoint: string): Promise<boolean> {
   try {

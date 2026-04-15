@@ -9,6 +9,7 @@ import {
 import { getA2AEndpoint } from './orchestrator.js';
 import type { A2ATaskRequest, A2ATaskStatus } from '../shared/a2a.js';
 import { createWorktree, mergeWorktree, cleanupWorktree, isGitRepo } from './worktree-mt.js';
+import { triggerBus } from './trigger-bus.js';
 
 /** Format prior conversation as a context block for the agent's next task. */
 function buildConversationContext(history: ConversationEntry[]): string | undefined {
@@ -170,15 +171,34 @@ async function pollRunningTasks(): Promise<void> {
         // R2.3: persist the exchange so future tasks for this agent have context
         appendConversation(task.agent_id, 'user', task.prompt, task.id);
         appendConversation(task.agent_id, 'assistant', result, task.id);
+        // 026: emit trigger event on failed terminal state (merge conflict / merge error)
+        if (finalStatus === 'failed') {
+          triggerBus.emitEvent({
+            type: 'mission_failed',
+            mission_task_id: task.id,
+            agent_id: task.agent_id,
+            error: finalError,
+            source: task.source ?? null,
+          });
+        }
       } else if (status.state === 'failed') {
         // 027: agent failed — discard the worktree (nothing to merge).
         if (task.repo_path && task.worktree_path && task.branch_name) {
           cleanupWorktree(task.repo_path, task.worktree_path, task.branch_name);
         }
+        const errMsg = status.error ?? 'A2A task failed without error message';
         updateMissionTask(task.id, {
           status: 'failed',
-          error: status.error ?? 'A2A task failed without error message',
+          error: errMsg,
           completed_at: Math.floor(Date.now() / 1000),
+        });
+        // 026: emit trigger event on A2A-reported failure
+        triggerBus.emitEvent({
+          type: 'mission_failed',
+          mission_task_id: task.id,
+          agent_id: task.agent_id,
+          error: errMsg,
+          source: task.source ?? null,
         });
       }
       // else still running — leave for next poll
