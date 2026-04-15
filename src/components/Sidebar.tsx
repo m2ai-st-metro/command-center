@@ -96,6 +96,14 @@ export function Sidebar() {
           >
             ST Metro
           </Link>
+          <Link
+            to="/sky-lynx"
+            className={`block px-3 py-2 rounded text-sm ${
+              location.pathname === '/sky-lynx' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+          >
+            Sky-Lynx
+          </Link>
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-800">

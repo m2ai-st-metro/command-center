@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import {
   getMission,
   listMissions,
@@ -573,6 +574,13 @@ const IDEAFORGE_DB_PATH =
   process.env.IDEAFORGE_DB_PATH ??
   '/home/apexaipc/projects/ideaforge/data/ideaforge.db';
 
+const SKYLYNX_PROPOSALS_DB =
+  process.env.SKYLYNX_PROPOSALS_DB ??
+  '/home/apexaipc/projects/sky-lynx/data/proposals.db';
+const SKYLYNX_RECS_DIR =
+  process.env.SKYLYNX_RECS_DIR ??
+  '/home/apexaipc/projects/sky-lynx/data/claudeclaw-recommendations';
+
 interface StageRow { status: string; cnt: number }
 interface IdeaRow { id: number; title: string; weighted_score: number | null; status: string }
 
@@ -641,5 +649,105 @@ router.get('/st-metro/ideaforge', (_req, res) => {
     });
   } finally {
     ifDb?.close();
+  }
+});
+
+// ── Sky-Lynx Recommendations (Phase 1: read-only) ────────────────────────────
+
+interface SkylynxProposalRow {
+  id: number;
+  parameter: string;
+  current_value: string;
+  proposed_value: string;
+  rationale: string;
+  source: string;
+  status: string;
+  proposed_at: string;
+  resolved_at: string | null;
+  squawk_count: number;
+}
+
+interface SkylynxJsonRec {
+  source?: string;
+  created_at?: string;
+  target_system?: string;
+  title?: string;
+  priority?: string;
+  evidence?: string;
+  suggested_change?: string;
+  impact?: string;
+  reversibility?: string;
+  recommendation_type?: string;
+}
+
+router.get('/sky-lynx/recs', (_req, res) => {
+  let db: Database.Database | null = null;
+  try {
+    // DB proposals (structured, have acceptance signal)
+    db = new Database(SKYLYNX_PROPOSALS_DB, { readonly: true });
+    const proposals = db
+      .prepare(
+        `SELECT id, parameter, current_value, proposed_value, rationale, source,
+                status, proposed_at, resolved_at, squawk_count
+         FROM proposals
+         ORDER BY datetime(proposed_at) DESC
+         LIMIT 200`
+      )
+      .all() as SkylynxProposalRow[];
+
+    const statusCounts = proposals.reduce<Record<string, number>>((acc, p) => {
+      acc[p.status] = (acc[p.status] ?? 0) + 1;
+      return acc;
+    }, {});
+    const resolved = (statusCounts.accepted ?? 0) + (statusCounts.rejected ?? 0);
+    const acceptance_rate = resolved > 0
+      ? (statusCounts.accepted ?? 0) / resolved
+      : null;
+
+    // JSON file recs (free-form, no acceptance signal)
+    let jsonRecs: Array<SkylynxJsonRec & { filename: string }> = [];
+    try {
+      const files = fs
+        .readdirSync(SKYLYNX_RECS_DIR)
+        .filter((f) => f.endsWith('.json'))
+        .sort()
+        .reverse()
+        .slice(0, 50);
+      jsonRecs = files.map((f) => {
+        const raw = fs.readFileSync(path.join(SKYLYNX_RECS_DIR, f), 'utf8');
+        return { ...(JSON.parse(raw) as SkylynxJsonRec), filename: f };
+      });
+    } catch (_e) {
+      // directory missing or unreadable — return empty list
+    }
+
+    // Repeat count per parameter (signals recurring recommendations)
+    const repeats: Record<string, number> = {};
+    for (const p of proposals) {
+      repeats[p.parameter] = (repeats[p.parameter] ?? 0) + 1;
+    }
+
+    res.json({
+      proposal_count: proposals.length,
+      status_counts: statusCounts,
+      acceptance_rate,
+      proposals: proposals.map((p) => ({
+        ...p,
+        repeat_count: repeats[p.parameter] ?? 1,
+      })),
+      json_recs: jsonRecs,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.json({
+      warning: `Could not read Sky-Lynx data: ${msg}`,
+      proposal_count: 0,
+      status_counts: {},
+      acceptance_rate: null,
+      proposals: [],
+      json_recs: [],
+    });
+  } finally {
+    db?.close();
   }
 });

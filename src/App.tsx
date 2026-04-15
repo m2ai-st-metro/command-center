@@ -7,6 +7,7 @@ import { NamedAgents } from './pages/NamedAgents';
 import { Schedules } from './pages/Schedules';
 import { AITown } from './pages/AITown';
 import { StMetro } from './pages/StMetro';
+import { SkyLynx } from './pages/SkyLynx';
 import { Sidebar } from './components/Sidebar';
 
 export function App() {
@@ -23,6 +24,7 @@ export function App() {
           <Route path="/schedules" element={<Schedules />} />
           <Route path="/ai-town" element={<AITown />} />
           <Route path="/st-metro" element={<StMetro />} />
+          <Route path="/sky-lynx" element={<SkyLynx />} />
         </Routes>
       </main>
     </div>
