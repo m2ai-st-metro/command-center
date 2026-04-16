@@ -20,6 +20,49 @@ function buildConversationContext(history: ConversationEntry[]): string | undefi
   return `Previous exchanges with you (most recent last):\n${lines.join('\n\n')}`;
 }
 
+/**
+ * 027 Phase 1.5: soft-guard the worktree isolation boundary at the prompt level.
+ *
+ * Claude's Edit/Write tools accept absolute paths, so even though we spawn with
+ * cwd=worktree, a goal that names `/home/apexaipc/projects/foo/bar.ts` by
+ * absolute path will be written to the source repo — bypassing the branch and
+ * leaving the source tree dirty. This function:
+ *
+ *   1. Rewrites occurrences of `repoPath` in the goal and context to point at
+ *      `worktreePath`, so absolute-path instructions land in the worktree.
+ *   2. Prepends an explicit isolation preamble to the context block so the
+ *      agent treats the source repo as read-only.
+ *
+ * This is a soft guard. A PreToolUse hook blocking Edit/Write outside cwd is
+ * a possible Phase 1.6 hard guard if these two layers prove insufficient.
+ */
+function shapePromptForWorktree(
+  goal: string,
+  context: string | undefined,
+  repoPath: string,
+  worktreePath: string,
+): { goal: string; context: string } {
+  // Normalize: strip trailing slash so "/home/x" and "/home/x/" both rewrite.
+  const src = repoPath.replace(/\/+$/, '');
+  const dst = worktreePath.replace(/\/+$/, '');
+
+  const rewrite = (s: string): string => (src && src !== dst ? s.split(src).join(dst) : s);
+
+  const preamble =
+    `[Worktree Isolation]\n` +
+    `You are operating in a per-task git worktree at ${dst}.\n` +
+    `All file modifications MUST use paths under this directory.\n` +
+    `The source repo at ${src} is READ-ONLY for this task — do not Edit, Write, or Bash-modify files there.\n` +
+    `Any absolute paths that reference the source repo have been rewritten to point at the worktree.\n` +
+    `[End Worktree Isolation]\n\n`;
+
+  const rewrittenGoal = rewrite(goal);
+  const rewrittenContext = context ? rewrite(context) : '';
+  const finalContext = rewrittenContext ? `${preamble}${rewrittenContext}` : preamble.trimEnd();
+
+  return { goal: rewrittenGoal, context: finalContext };
+}
+
 const POLL_INTERVAL_MS = 15_000;
 
 /**
@@ -78,10 +121,21 @@ export async function dispatchMissionTask(taskId: string): Promise<void> {
     }
   }
 
+  // 027 Phase 1.5: when a worktree is in play, rewrite source-repo absolute
+  // paths to worktree paths and prepend an isolation preamble. Leaves the
+  // non-worktree path (task.repo_path unset) untouched.
+  let shapedGoal = task.prompt;
+  let shapedContext = conversationContext;
+  if (task.repo_path && worktreePath) {
+    const shaped = shapePromptForWorktree(task.prompt, conversationContext, task.repo_path, worktreePath);
+    shapedGoal = shaped.goal;
+    shapedContext = shaped.context;
+  }
+
   const body: A2ATaskRequest = {
     id: task.id,
-    goal: task.prompt,
-    context: conversationContext,
+    goal: shapedGoal,
+    context: shapedContext,
     skill: task.skill ?? undefined,
     sender: { id: 'mission-dispatcher', name: 'CMD Mission Dispatcher' },
     cwd: worktreePath ?? undefined,
