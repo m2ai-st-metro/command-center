@@ -100,9 +100,10 @@ export function mergeWorktree(repoPath: string, branchName: string, worktreePath
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('CONFLICT') || msg.includes('Merge conflict')) {
-      // Abort the merge in the source repo so it's left in a clean state.
-      // The worktree + branch are preserved for inspection.
-      try { execSync(`git -C "${repoPath}" merge --abort`, { stdio: 'pipe' }); } catch { /* ignore */ }
+      // 027 Phase 2: DO NOT auto-abort. The caller is expected to invoke the
+      // conflict-resolver agent against the source repo while it is still in
+      // conflicted state, then call abortMerge() on resolver failure. Aborting
+      // here would erase the state the resolver needs to operate on.
       return { merged: false, conflict: true, noChanges: false, error: 'merge conflict' };
     }
     return { merged: false, conflict: false, noChanges: false, error: msg };
@@ -110,9 +111,17 @@ export function mergeWorktree(repoPath: string, branchName: string, worktreePath
 }
 
 /**
+ * Abort a merge left in conflicted state by mergeWorktree. Call only after
+ * the conflict-resolver agent has failed. Safe no-op if no merge is in progress.
+ */
+export function abortMerge(repoPath: string): void {
+  try { execSync(`git -C "${repoPath}" merge --abort`, { stdio: 'pipe' }); } catch { /* ignore */ }
+}
+
+/**
  * Remove the worktree directory and delete its branch. Safe to call even if
- * already gone. Do NOT call after a conflict — the branch/worktree should be
- * preserved for human inspection in that case.
+ * already gone. Do NOT call after an unresolved conflict — the branch/worktree
+ * should be preserved for human inspection in that case.
  */
 export function cleanupWorktree(repoPath: string, worktreePath: string, branchName: string): void {
   try { execSync(`git -C "${repoPath}" worktree remove "${worktreePath}" --force`, { stdio: 'pipe' }); } catch { /* ignore */ }

@@ -9,8 +9,9 @@ import {
 } from './db.js';
 import { getA2AEndpoint } from './orchestrator.js';
 import type { A2ATaskRequest, A2ATaskStatus } from '../shared/a2a.js';
-import { createWorktree, mergeWorktree, cleanupWorktree, isGitRepo } from './worktree-mt.js';
+import { createWorktree, mergeWorktree, abortMerge, cleanupWorktree, isGitRepo } from './worktree-mt.js';
 import { touchAgentLock, releaseAgentLock, reconcileStaleLocks } from './agent-lock.js';
+import { resolveConflict } from './conflict-resolver.js';
 import { triggerBus } from './trigger-bus.js';
 
 /** Format prior conversation as a context block for the agent's next task. */
@@ -211,8 +212,28 @@ async function pollRunningTasks(): Promise<void> {
         if (task.repo_path && task.worktree_path && task.branch_name) {
           const outcome = mergeWorktree(task.repo_path, task.branch_name, task.worktree_path);
           if (outcome.conflict) {
-            finalStatus = 'failed';
-            finalError = `Merge conflict on branch ${task.branch_name}. Worktree preserved at ${task.worktree_path} for manual resolution. Agent output follows:\n\n${result}`;
+            // 027 Phase 2: invoke the ephemeral conflict-resolution agent.
+            // The source repo is in conflicted state; resolver will edit
+            // conflicts and run `git add` + `git commit` to finalize the merge.
+            // No mission_logs stream on this path, so route progress to console
+            // for pm2-tail visibility. Tagged with the task id for grep-ability.
+            const resolved = await resolveConflict(task.repo_path, {
+              onLog: (level, message) => {
+                const line = `[mission-task:${task.id}] ${message}`;
+                if (level === 'error') console.error(line);
+                else console.log(line);
+              },
+            });
+            if (resolved) {
+              result = `${result}\n\n[worktree: merge conflict on ${task.branch_name} auto-resolved by ephemeral agent]`;
+              cleanupWorktree(task.repo_path, task.worktree_path, task.branch_name);
+            } else {
+              // Resolver failed — abort the conflicted merge and preserve
+              // the worktree + branch so a human can finish the job.
+              abortMerge(task.repo_path);
+              finalStatus = 'failed';
+              finalError = `Merge conflict on branch ${task.branch_name}; conflict-resolver agent failed. Worktree preserved at ${task.worktree_path} for manual resolution. Agent output follows:\n\n${result}`;
+            }
           } else if (outcome.error) {
             finalStatus = 'failed';
             finalError = `Merge failed: ${outcome.error}. Worktree: ${task.worktree_path}`;

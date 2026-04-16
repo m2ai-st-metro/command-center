@@ -15,6 +15,7 @@ import {
 } from './db.js';
 import { getStockAgentPrompt } from './stock-loader.js';
 import { getCustomAgentPrompt } from './custom-agents.js';
+import { resolveConflict } from './conflict-resolver.js';
 import type { MissionSubtask, WorkerPoolConfig } from '../shared/types.js';
 import { DEFAULT_POOL_CONFIG } from '../shared/types.js';
 
@@ -155,48 +156,6 @@ function mergeWorktree(repoPath: string, branchName: string, missionId: string):
     addMissionLog(missionId, 'error', `Merge failed for ${branchName}: ${errMsg}`);
     return { success: false, conflict: false };
   }
-}
-
-async function resolveConflict(repoPath: string, missionId: string): Promise<boolean> {
-  addMissionLog(missionId, 'info', 'Spawning ephemeral conflict-resolution agent...');
-
-  return new Promise((resolve) => {
-    const args = [
-      '--print', `Resolve the git merge conflicts in ${repoPath}. Run 'git diff' to see conflicts, fix them, then 'git add' the resolved files and 'git commit'.`,
-      '--output-format', 'text',
-      '--allowedTools', 'Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash',
-      '--max-turns', '15',
-    ];
-
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY;
-
-    const child = spawn('claude', args, {
-      env,
-      cwd: repoPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 300_000, // 5 min for conflict resolution
-    });
-
-    let stdout = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => {
-      const line = chunk.toString().trim();
-      if (line) addMissionLog(missionId, 'progress', `ConflictResolver: ${line.slice(0, 150)}`);
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        addMissionLog(missionId, 'info', 'Conflict resolution succeeded');
-        resolve(true);
-      } else {
-        addMissionLog(missionId, 'error', `Conflict resolution failed (exit ${code})`);
-        resolve(false);
-      }
-    });
-
-    child.on('error', () => resolve(false));
-  });
 }
 
 function cleanupWorktree(repoPath: string, worktreePath: string, branchName: string): void {
@@ -526,7 +485,9 @@ async function mergeAllWorktrees(missionId: string, worktrees: WorktreeInfo[]): 
     if (success) {
       addMissionLog(missionId, 'info', `Merged branch ${wt.branchName} successfully`);
     } else if (conflict) {
-      const resolved = await resolveConflict(wt.repoPath, missionId);
+      const resolved = await resolveConflict(wt.repoPath, {
+        onLog: (level, message) => addMissionLog(missionId, level, message),
+      });
       if (!resolved) {
         addMissionLog(missionId, 'error', `Unresolved merge conflict for branch ${wt.branchName} — aborting merge`);
         try { execSync(`git -C "${wt.repoPath}" merge --abort`, { stdio: 'pipe' }); } catch { /* ignore */ }
