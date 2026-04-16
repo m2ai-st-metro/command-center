@@ -196,6 +196,25 @@ export function initDatabase(): Database.Database {
   // 026: mission_tasks gains a source column so trigger-dispatched tasks can be excluded from re-firing
   migrateSafe("ALTER TABLE mission_tasks ADD COLUMN source TEXT");
 
+  // R3 (029): Judge-Reasoner retry loop — track iterations + final resolution
+  migrateSafe('ALTER TABLE missions ADD COLUMN judge_iterations INTEGER NOT NULL DEFAULT 0');
+  migrateSafe('ALTER TABLE missions ADD COLUMN judge_final_action TEXT');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mission_judge_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mission_id TEXT NOT NULL REFERENCES missions(id),
+      iteration INTEGER NOT NULL,
+      agent_id TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      reasoner_action TEXT NOT NULL,
+      reasoner_rationale TEXT,
+      next_agent_id TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_mission_judge_history_mission
+      ON mission_judge_history(mission_id, iteration);
+  `);
+
   // Phase 5.2: Worker pool persistence
   db.exec(`
     CREATE TABLE IF NOT EXISTS worker_slots (
@@ -574,6 +593,58 @@ export function updateRoutingWeight(agentId: string, taskType: string): void {
 export function setMissionJudgeVerdict(missionId: string, verdict: unknown): void {
   getDb().prepare('UPDATE missions SET judge_verdict = ? WHERE id = ?')
     .run(JSON.stringify(verdict), missionId);
+}
+
+// ── Judge-Reasoner Iteration History (R3 / 029) ─────────────────────
+
+export interface JudgeHistoryRow {
+  id: number;
+  mission_id: string;
+  iteration: number;
+  agent_id: string;
+  verdict: unknown;
+  reasoner_action: string;
+  reasoner_rationale: string | null;
+  next_agent_id: string | null;
+  created_at: number;
+}
+
+export function recordJudgeIteration(data: {
+  mission_id: string;
+  iteration: number;
+  agent_id: string;
+  verdict: unknown;
+  reasoner_action: string;
+  reasoner_rationale: string | null;
+  next_agent_id: string | null;
+}): void {
+  const now = Math.floor(Date.now() / 1000);
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO mission_judge_history
+      (mission_id, iteration, agent_id, verdict, reasoner_action, reasoner_rationale, next_agent_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    data.mission_id, data.iteration, data.agent_id,
+    JSON.stringify(data.verdict), data.reasoner_action,
+    data.reasoner_rationale, data.next_agent_id, now,
+  );
+  db.prepare('UPDATE missions SET judge_iterations = ? WHERE id = ?')
+    .run(data.iteration, data.mission_id);
+}
+
+export function setMissionJudgeFinalAction(missionId: string, action: string): void {
+  getDb().prepare('UPDATE missions SET judge_final_action = ? WHERE id = ?')
+    .run(action, missionId);
+}
+
+export function listMissionJudgeHistory(missionId: string): JudgeHistoryRow[] {
+  const rows = getDb().prepare(
+    `SELECT id, mission_id, iteration, agent_id, verdict,
+            reasoner_action, reasoner_rationale, next_agent_id, created_at
+     FROM mission_judge_history WHERE mission_id = ? ORDER BY iteration ASC`
+  ).all(missionId) as Array<Omit<JudgeHistoryRow, 'verdict'> & { verdict: string }>;
+  return rows.map(r => ({ ...r, verdict: JSON.parse(r.verdict) }));
 }
 
 // ── Schedules ───────────────────────────────────────────────────────

@@ -15,16 +15,24 @@ import {
   getRoutingWeight,
   listRoutingWeights,
   updateRoutingWeight,
+  recordJudgeIteration,
+  setMissionJudgeFinalAction,
   type AgentCapabilities,
 } from './db.js';
 import { getStockAgentPrompt } from './stock-loader.js';
 import { getCustomAgentPrompt } from './custom-agents.js';
 import { planMission } from './planner.js';
 import { judgeMission } from './judge.js';
+import { askReasoner, type ReasonerAttempt } from './reasoner.js';
 import { executeMission as executeViaWorkerManager } from './worker-manager.js';
-import type { Mission, MissionPlan, AgentCard } from '../shared/types.js';
+import type { Mission, MissionPlan, AgentCard, JudgeVerdict } from '../shared/types.js';
 import { DIMENSION_WEIGHTS, computeCompositeScore } from '../shared/types.js';
 import type { A2ATaskRequest, A2ATaskStatus } from '../shared/a2a.js';
+
+// R3 (029): Judge-Reasoner retry loop cap for single-agent missions. Every
+// iteration costs one dispatch + one Judge call + (on fail) one Reasoner call,
+// so the cap is chosen to bound worst-case Max spend to roughly 3x a normal run.
+const JUDGE_MAX_ITERATIONS = 3;
 
 // ── A2A Agent Registry ───────────────────────────────────────────────
 // Maps agent IDs to their A2A endpoint URLs
@@ -337,75 +345,177 @@ export async function approveMission(missionId: string): Promise<void> {
   }
 
   updateMission(missionId, { status: 'running' });
-  addMissionLog(missionId, 'info', 'Mission approved — executing (single subtask)');
+  addMissionLog(missionId, 'info', 'Mission approved — executing (single subtask, R3 Judge-Reasoner loop)');
   updateAgentStatus(agentId, 'busy', missionId);
 
-  const startTime = Date.now();
+  const missionStartTime = Date.now();
+  const planReasoning = mission.plan?.reasoning ?? '';
+  const taskType = inferTaskType(planReasoning, mission.goal as string);
+
+  let currentAgent = agentId;
+  let currentGoal = mission.goal as string;
+  let finalResult = '';
+  let finalStatus: 'completed' | 'failed' = 'completed';
+  let finalAction: 'accepted' | 'escalated' = 'escalated';
+  let finalVerdict: JudgeVerdict | null = null;
+  const priorAttempts: ReasonerAttempt[] = [];
 
   try {
-    addMissionLog(missionId, 'progress', `Dispatching to agent: ${agentId}`);
+    for (let iteration = 1; iteration <= JUDGE_MAX_ITERATIONS; iteration++) {
+      addMissionLog(missionId, 'info',
+        `Judge iteration ${iteration}/${JUDGE_MAX_ITERATIONS} — dispatching to ${currentAgent}`
+      );
+      if (currentAgent !== agentId) {
+        updateAgentStatus(agentId, 'available', null);
+        updateAgentStatus(currentAgent, 'busy', missionId);
+      }
 
-    // Try A2A dispatch first, fall back to direct Claude Code
-    const a2aEndpoint = a2aEndpoints.get(agentId);
-    let result: string;
+      const attemptStart = Date.now();
+      let attemptResult: string;
+      let attemptFailed = false;
+      try {
+        attemptResult = await dispatchSingleAgent(missionId, currentAgent, currentGoal);
+      } catch (err) {
+        attemptResult = err instanceof Error ? err.message : String(err);
+        attemptFailed = true;
+        addMissionLog(missionId, 'error', `Dispatch error iter ${iteration}: ${attemptResult.slice(0, 200)}`);
+      }
+      const attemptDurationMs = Date.now() - attemptStart;
+      finalResult = attemptResult;
+      finalStatus = attemptFailed ? 'failed' : 'completed';
 
-    if (a2aEndpoint) {
-      addMissionLog(missionId, 'info', `Using A2A protocol → ${a2aEndpoint}`);
-      result = await executeViaA2A(a2aEndpoint, missionId, mission.goal as string);
-    } else {
-      // Check if this is a custom or stock agent with a markdown prompt
-      const customPrompt = getCustomAgentPrompt(agentId);
-      const stockPrompt = customPrompt ? null : getStockAgentPrompt(agentId);
-      const agentPrompt = customPrompt || stockPrompt;
+      // Log outcome once per attempt so routing weights reflect every try.
+      logOutcome(missionId, taskType, currentAgent, planReasoning, finalStatus, attemptDurationMs);
 
-      // Load capabilities for direct dispatch (Tier 2/3 won't have these)
-      const capabilities = getAgentCapabilities(agentId);
+      const verdict = await judgeMission(currentGoal, attemptResult, taskType, finalStatus, attemptDurationMs);
+      finalVerdict = verdict;
+      addMissionLog(missionId, 'info',
+        `Judge iter ${iteration}: ${verdict.passed ? 'PASS' : 'FAIL'} ` +
+        `(composite: ${(verdict.composite_score * 100).toFixed(0)}% — ` +
+        `c:${(verdict.quality_scores.correctness * 100).toFixed(0)}% ` +
+        `p:${(verdict.quality_scores.completeness * 100).toFixed(0)}% ` +
+        `r:${(verdict.quality_scores.relevance * 100).toFixed(0)}%) ` +
+        `[${verdict.method}]`
+      );
 
-      if (agentPrompt) {
-        const promptType = customPrompt ? 'custom' : 'stock';
-        addMissionLog(missionId, 'info', `Using ${promptType} agent prompt for ${agentId}`);
-        result = await executeViaClaudeCode(mission.goal as string, missionId, agentPrompt, capabilities);
-      } else {
-        addMissionLog(missionId, 'info', 'No A2A endpoint — using direct Claude Code');
-        result = await executeViaClaudeCode(mission.goal as string, missionId, undefined, capabilities);
+      updateOutcomeScores(missionId, {
+        correctness: verdict.quality_scores.correctness,
+        completeness: verdict.quality_scores.completeness,
+        relevance: verdict.quality_scores.relevance,
+        compositeScore: verdict.composite_score,
+        judgeReasoning: verdict.reasoning,
+        judgeMethod: verdict.method,
+      });
+      updateRoutingWeight(currentAgent, taskType);
+
+      if (verdict.passed) {
+        recordJudgeIteration({
+          mission_id: missionId, iteration, agent_id: currentAgent,
+          verdict, reasoner_action: 'accept',
+          reasoner_rationale: 'Judge passed', next_agent_id: null,
+        });
+        finalAction = 'accepted';
+        break;
+      }
+
+      if (iteration >= JUDGE_MAX_ITERATIONS) {
+        recordJudgeIteration({
+          mission_id: missionId, iteration, agent_id: currentAgent,
+          verdict, reasoner_action: 'escalate',
+          reasoner_rationale: 'iteration cap reached', next_agent_id: null,
+        });
+        addMissionLog(missionId, 'error', `Escalating: iteration cap ${JUDGE_MAX_ITERATIONS} reached`);
+        finalAction = 'escalated';
+        break;
+      }
+
+      const available = (listAgents() as AgentCard[])
+        .filter(a => a.type === 'named' && a.id !== currentAgent)
+        .map(a => ({ id: a.id, skills: Array.isArray(a.skills) ? a.skills : [] }));
+      addMissionLog(missionId, 'info', `Judge FAILed — consulting Reasoner (candidates: ${available.map(a => a.id).join(', ') || 'none'})`);
+      const decision = await askReasoner({
+        goal: currentGoal,
+        result: attemptResult,
+        verdict,
+        iteration,
+        maxIterations: JUDGE_MAX_ITERATIONS,
+        priorAttempts,
+        currentAgentId: currentAgent,
+        availableAgents: available,
+        taskType,
+      });
+      addMissionLog(missionId, 'info',
+        `Reasoner: ${decision.action}` +
+        (decision.new_agent_id ? ` → ${decision.new_agent_id}` : '') +
+        ` — ${decision.rationale}`
+      );
+      recordJudgeIteration({
+        mission_id: missionId, iteration, agent_id: currentAgent,
+        verdict, reasoner_action: decision.action,
+        reasoner_rationale: decision.rationale,
+        next_agent_id: decision.new_agent_id ?? null,
+      });
+      priorAttempts.push({ agent_id: currentAgent, verdict, reasoner_action: decision.action });
+
+      if (decision.action === 'escalate') {
+        finalAction = 'escalated';
+        break;
+      }
+      if (decision.action === 'retry_different' && decision.new_agent_id) {
+        currentAgent = decision.new_agent_id;
+      }
+      if (decision.refined_prompt) {
+        currentGoal = decision.refined_prompt;
       }
     }
 
-    const durationMs = Date.now() - startTime;
+    const totalDurationMs = Date.now() - missionStartTime;
+    const missionStatus = finalAction === 'accepted' ? 'completed' : 'failed';
     updateMission(missionId, {
-      status: 'completed',
-      result,
-      duration_ms: durationMs,
+      status: missionStatus,
+      result: finalResult,
+      duration_ms: totalDurationMs,
+      agent_id: currentAgent,
     });
-    addMissionLog(missionId, 'result', result);
-    addMissionLog(missionId, 'info', `Mission completed in ${Math.round(durationMs / 1000)}s`);
-
-    // Log outcome for routing quality tracking
-    const planReasoning = mission.plan?.reasoning ?? '';
-    const taskType = inferTaskType(planReasoning, mission.goal as string);
-    logOutcome(missionId, taskType, agentId, planReasoning, 'completed', durationMs);
-
-    // Phase 5.3/5.4: Async Judge evaluation — does not block mission completion
-    runJudgeAsync(missionId, mission.goal as string, result, taskType, agentId, 'completed', durationMs);
-  } catch (err) {
-    const durationMs = Date.now() - startTime;
-    const errMsg = err instanceof Error ? err.message : String(err);
-    updateMission(missionId, {
-      status: 'failed',
-      result: errMsg,
-      duration_ms: durationMs,
-    });
-    addMissionLog(missionId, 'error', `Mission failed: ${errMsg}`);
-
-    const planReasoning = mission.plan?.reasoning ?? '';
-    const taskType = inferTaskType(planReasoning, mission.goal as string);
-    logOutcome(missionId, taskType, agentId, planReasoning, 'failed', durationMs);
-
-    // Judge also evaluates failures — to score partial quality
-    runJudgeAsync(missionId, mission.goal as string, errMsg, taskType, agentId, 'failed', durationMs);
+    addMissionLog(missionId, finalAction === 'accepted' ? 'result' : 'error', finalResult);
+    addMissionLog(missionId, 'info',
+      `Mission ${finalAction} after ${Math.round(totalDurationMs / 1000)}s ` +
+      `(${priorAttempts.length + 1} attempt${priorAttempts.length ? 's' : ''})`
+    );
+    setMissionJudgeFinalAction(missionId, finalAction);
+    if (finalVerdict) setMissionJudgeVerdict(missionId, finalVerdict);
   } finally {
-    updateAgentStatus(agentId, 'available', null);
+    updateAgentStatus(currentAgent, 'available', null);
+    if (currentAgent !== agentId) updateAgentStatus(agentId, 'available', null);
   }
+}
+
+/**
+ * Execute a single-agent mission attempt via A2A, custom, stock, or direct
+ * Claude Code. Throws on dispatch failure; the caller's retry loop decides
+ * whether the error escalates or leads to another iteration.
+ */
+async function dispatchSingleAgent(missionId: string, agentId: string, goal: string): Promise<string> {
+  addMissionLog(missionId, 'progress', `Dispatching to agent: ${agentId}`);
+
+  const a2aEndpoint = a2aEndpoints.get(agentId);
+  if (a2aEndpoint) {
+    addMissionLog(missionId, 'info', `Using A2A protocol → ${a2aEndpoint}`);
+    return executeViaA2A(a2aEndpoint, missionId, goal);
+  }
+
+  const customPrompt = getCustomAgentPrompt(agentId);
+  const stockPrompt = customPrompt ? null : getStockAgentPrompt(agentId);
+  const agentPrompt = customPrompt || stockPrompt;
+  const capabilities = getAgentCapabilities(agentId);
+
+  if (agentPrompt) {
+    const promptType = customPrompt ? 'custom' : 'stock';
+    addMissionLog(missionId, 'info', `Using ${promptType} agent prompt for ${agentId}`);
+    return executeViaClaudeCode(goal, missionId, agentPrompt, capabilities);
+  }
+  addMissionLog(missionId, 'info', 'No A2A endpoint — using direct Claude Code');
+  return executeViaClaudeCode(goal, missionId, undefined, capabilities);
 }
 
 export function cancelMission(missionId: string): void {

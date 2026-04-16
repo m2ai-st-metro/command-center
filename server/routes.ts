@@ -27,6 +27,7 @@ import {
   updateTrigger,
   deleteTrigger,
   listTriggerFires,
+  listMissionJudgeHistory,
   type TriggerConditionType,
   type TriggerActionType,
 } from './db.js';
@@ -91,7 +92,8 @@ router.get('/missions/:id', (req, res) => {
   const judge_verdict = (mission as Record<string, unknown>).judge_verdict
     ? JSON.parse((mission as Record<string, unknown>).judge_verdict as string)
     : null;
-  res.json({ mission, logs, judge_verdict });
+  const judge_history = listMissionJudgeHistory(req.params.id);
+  res.json({ mission, logs, judge_verdict, judge_history });
 });
 
 router.post('/missions', async (req, res) => {
