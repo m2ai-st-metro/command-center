@@ -68,6 +68,7 @@ function runClaudeCode(
       '--output-format', 'text',
       '--append-system-prompt', systemPrompt,
       '--allowedTools', ...tools,
+      '--permission-mode', 'acceptEdits',
       '--max-turns', String(maxTurns),
     ];
 
