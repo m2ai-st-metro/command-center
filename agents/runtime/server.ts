@@ -127,8 +127,18 @@ export function startAgentServer(config: AgentConfig): void {
 
     // R2.4: resolve per-skill model if skill hint provided
     const resolvedModel = resolveModel(capabilities, body.skill);
+    // 029: honor per-task maxTurns override, validated (1-200). Falls back to
+    // the agent.md default if unset or out-of-range.
+    let resolvedMaxTurns: number | undefined;
+    if (typeof body.max_turns === 'number' && Number.isInteger(body.max_turns)
+        && body.max_turns >= 1 && body.max_turns <= 200) {
+      resolvedMaxTurns = body.max_turns;
+      addTaskLog(task.id, 'info', `maxTurns override: ${resolvedMaxTurns} (agent default ${capabilities?.maxTurns ?? 25})`);
+    } else if (body.max_turns !== undefined) {
+      addTaskLog(task.id, 'info', `maxTurns override ignored (not an integer in [1,200]): ${body.max_turns}`);
+    }
     const effectiveCapabilities: AgentCapabilitiesConfig | undefined = capabilities
-      ? { ...capabilities, model: resolvedModel }
+      ? { ...capabilities, model: resolvedModel, maxTurns: resolvedMaxTurns ?? capabilities.maxTurns }
       : undefined;
 
     // 027: validate caller-supplied cwd. Must be an absolute path under /tmp

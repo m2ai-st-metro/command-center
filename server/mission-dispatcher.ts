@@ -140,6 +140,8 @@ export async function dispatchMissionTask(taskId: string): Promise<void> {
     skill: task.skill ?? undefined,
     sender: { id: 'mission-dispatcher', name: 'CMD Mission Dispatcher' },
     cwd: worktreePath ?? undefined,
+    // 029: forward per-task maxTurns override so the runtime can pass --max-turns
+    max_turns: task.max_turns ?? undefined,
   };
 
   try {

@@ -61,6 +61,14 @@ export interface A2ATaskRequest {
    * Extension field; agents that don't recognize it fall back to default cwd.
    */
   cwd?: string;
+  /**
+   * 029: Per-task override of the agent's configured maxTurns.
+   * When set, the runtime passes --max-turns <n> to Claude Code, overriding
+   * the agent.md frontmatter default. Data uses this to stretch Kup past its
+   * 60-turn default for multi-file feature work. Extension field; agents that
+   * don't recognize it fall back to capability default.
+   */
+  max_turns?: number;
 }
 
 /** POST /task — response body (immediate acknowledgment) */

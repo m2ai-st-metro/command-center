@@ -152,6 +152,8 @@ export interface MissionTask {
   branch_name: string | null;   // `cmd-mt-<id8>` — branch created in worktree
   // 026: provenance tag — 'trigger' means dispatched by trigger-eval; excluded from re-firing
   source: string | null;
+  // 029: per-task override of the agent.md maxTurns default. null = use agent default.
+  max_turns: number | null;
 }
 
 export interface CreateMissionTaskRequest {
@@ -161,6 +163,7 @@ export interface CreateMissionTaskRequest {
   priority?: number;
   skill?: string;              // R2.4
   repo_path?: string;          // 027: work inside an isolated worktree of this repo
+  max_turns?: number;          // 029: override agent.md maxTurns for this task only
 }
 
 // ── API Types ────────────────────────────────────────────────────────

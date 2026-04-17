@@ -400,7 +400,7 @@ router.get('/routing/insights', (_req, res) => {
 // ── Mission Tasks (R2.1 — async fire-and-forget queue) ────────────────
 
 router.post('/tasks', async (req, res) => {
-  const { agent_id, title, prompt, priority, skill, repo_path } = req.body as CreateMissionTaskRequest;
+  const { agent_id, title, prompt, priority, skill, repo_path, max_turns } = req.body as CreateMissionTaskRequest;
   if (!agent_id?.trim()) {
     res.status(400).json({ error: 'agent_id is required' });
     return;
@@ -413,6 +413,13 @@ router.post('/tasks', async (req, res) => {
     res.status(400).json({ error: 'prompt is required' });
     return;
   }
+  // 029: validate max_turns if supplied — reject non-integer, <1, or >200 (sanity cap)
+  if (max_turns !== undefined && max_turns !== null) {
+    if (!Number.isInteger(max_turns) || max_turns < 1 || max_turns > 200) {
+      res.status(400).json({ error: 'max_turns must be an integer between 1 and 200' });
+      return;
+    }
+  }
   const id = uuidv4();
   const task = createMissionTask({
     id,
@@ -422,6 +429,7 @@ router.post('/tasks', async (req, res) => {
     priority,
     skill: skill?.trim() || undefined,
     repo_path: repo_path?.trim() || undefined,
+    max_turns: max_turns ?? undefined,
   });
   // Fire-and-forget dispatch — returns immediately with queued task
   dispatchMissionTask(id).catch(err => console.error(`[tasks] dispatch error for ${id}:`, err));

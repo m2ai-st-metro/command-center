@@ -195,6 +195,8 @@ export function initDatabase(): Database.Database {
   `);
   // 026: mission_tasks gains a source column so trigger-dispatched tasks can be excluded from re-firing
   migrateSafe("ALTER TABLE mission_tasks ADD COLUMN source TEXT");
+  // 029: per-task maxTurns override (null = use agent.md default)
+  migrateSafe('ALTER TABLE mission_tasks ADD COLUMN max_turns INTEGER');
 
   // R3 (029): Judge-Reasoner retry loop — track iterations + final resolution
   migrateSafe('ALTER TABLE missions ADD COLUMN judge_iterations INTEGER NOT NULL DEFAULT 0');
@@ -1008,6 +1010,7 @@ function mapMissionTaskRow(row: Record<string, unknown>): MissionTask {
     worktree_path: (row.worktree_path as string | null | undefined) ?? null,
     branch_name: (row.branch_name as string | null | undefined) ?? null,
     source: (row.source as string | null | undefined) ?? null,
+    max_turns: (row.max_turns as number | null | undefined) ?? null,
   };
 }
 
@@ -1020,11 +1023,12 @@ export function createMissionTask(task: {
   skill?: string;
   repo_path?: string;
   source?: string;
+  max_turns?: number;
 }): MissionTask {
   const now = Math.floor(Date.now() / 1000);
   getDb().prepare(
-    `INSERT INTO mission_tasks (id, agent_id, title, prompt, priority, status, created_at, skill, repo_path, source) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`
-  ).run(task.id, task.agent_id, task.title, task.prompt, task.priority ?? 5, now, task.skill ?? null, task.repo_path ?? null, task.source ?? null);
+    `INSERT INTO mission_tasks (id, agent_id, title, prompt, priority, status, created_at, skill, repo_path, source, max_turns) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`
+  ).run(task.id, task.agent_id, task.title, task.prompt, task.priority ?? 5, now, task.skill ?? null, task.repo_path ?? null, task.source ?? null, task.max_turns ?? null);
   return getMissionTask(task.id)!;
 }
 

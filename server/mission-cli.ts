@@ -47,11 +47,14 @@ function usage(exitCode = 2): never {
   console.error(`Usage: mission-cli <command> [options]
 
 Commands:
-  create --agent <id> --title <label> [--skill <s>] [--repo <path>] [--priority N] [--json] "<prompt>"
+  create --agent <id> --title <label> [--skill <s>] [--repo <path>] [--priority N] [--max-turns N] [--json] "<prompt>"
      Queue a task for an agent. Returns the task id.
      --skill routes to an agent's skill-specific model (R2.4, if configured).
      --repo runs the task in an isolated git worktree of the given repo (027).
             Path must be an absolute path to a git repo on this machine.
+     --max-turns overrides the agent's configured maxTurns for this task (029).
+            Integer in [1,200]. Use to stretch Kup past its 60-turn default
+            for multi-file feature work without editing agent.md.
 
   list [--limit N] [--status <s>] [--json]
      List recent tasks (default 20). Status: queued, running, completed, failed, cancelled.
@@ -102,6 +105,8 @@ async function cmdCreate(args: ParsedArgs): Promise<void> {
   const skill = args.flags.skill as string | undefined;
   const repoPath = args.flags.repo as string | undefined;
   const priority = args.flags.priority ? parseInt(args.flags.priority as string, 10) : undefined;
+  const maxTurnsFlag = args.flags['max-turns'];
+  const maxTurns = maxTurnsFlag ? parseInt(maxTurnsFlag as string, 10) : undefined;
   const prompt = args.positional.join(' ');
 
   if (!agent || !title || !prompt) {
@@ -114,9 +119,14 @@ async function cmdCreate(args: ParsedArgs): Promise<void> {
     process.exit(2);
   }
 
+  if (maxTurns !== undefined && (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 200)) {
+    console.error(`Error: --max-turns must be an integer in [1,200] (got: ${maxTurnsFlag}).\n`);
+    process.exit(2);
+  }
+
   const { task } = await apiCall<{ task: MissionTask }>('/api/tasks', {
     method: 'POST',
-    body: JSON.stringify({ agent_id: agent, title, prompt, priority, skill, repo_path: repoPath }),
+    body: JSON.stringify({ agent_id: agent, title, prompt, priority, skill, repo_path: repoPath, max_turns: maxTurns }),
   });
 
   if (args.flags.json) {
