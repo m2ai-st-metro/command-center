@@ -13,18 +13,22 @@
     "build:client": "vite build",
     "start": "node dist/server/server/index.js",
     "preview": "vite preview",
-    "mission-cli": "node dist/server/server/mission-cli.js"
+    "mission-cli": "node dist/server/server/mission-cli.js",
+    "mcp": "node dist/server/mcp/index.js"
   },
   "bin": {
-    "mission-cli": "dist/server/server/mission-cli.js"
+    "mission-cli": "dist/server/server/mission-cli.js",
+    "cmd-mcp": "dist/server/mcp/index.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
     "cron-parser": "^5.5.0",
     "express": "^4.21.0",
     "js-yaml": "^4.1.1",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

@@ -12,5 +12,5 @@
     "rootDir": ".",
     "declaration": true
   },
-  "include": ["server", "shared"]
+  "include": ["server", "shared", "mcp"]
 }

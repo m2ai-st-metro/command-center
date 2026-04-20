@@ -18,6 +18,10 @@ npm start              # node dist/server/server/index.js  (note nested server/s
 pm2 start ecosystem.config.cjs
 pm2 restart command-center   # restart only orchestrator
 pm2 logs agent-coding        # per-agent logs
+
+# MCP server (Phase 5B / 031) — thin stdio shim over the HTTP API.
+# Register in Claude Desktop / Code by pointing at dist/server/mcp/index.js.
+npm run mcp                  # run from built output (requires command-center HTTP on :3142)
 ```
 
 No test runner or linter is configured in `package.json` — don't invent one.
