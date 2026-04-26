@@ -39,6 +39,7 @@ const OAUTH_CLIENT_SECRET = process.env.CMD_MCP_OAUTH_CLIENT_SECRET ?? '';
 const PUBLIC_URL = (process.env.CMD_MCP_PUBLIC_URL ?? '').replace(/\/$/, '');
 const OAUTH_ENABLED = Boolean(OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET && PUBLIC_URL);
 const OAUTH_TOKEN_TTL_SECONDS = 24 * 60 * 60; // 24h — matches CF Access default session
+const OAUTH_REFRESH_TTL_SECONDS = 90 * 24 * 60 * 60; // 90d — long enough to bridge typical inactivity
 
 // ── CMD HTTP client ─────────────────────────────────────────────────
 
@@ -555,7 +556,7 @@ function oauthAuthorizationServerMetadata(): Record<string, unknown> {
     issuer: PUBLIC_URL,
     authorization_endpoint: `${PUBLIC_URL}/authorize`,
     token_endpoint: `${PUBLIC_URL}/oauth/token`,
-    grant_types_supported: ['authorization_code', 'client_credentials'],
+    grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
     response_types_supported: ['code'],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
@@ -690,13 +691,46 @@ async function handleTokenEndpoint(
       return;
     }
     const { access_token, expires_in } = issueOAuthToken();
-    writeJson(res, 200, { access_token, token_type: 'Bearer', expires_in, scope: 'mcp' });
+    const refresh_token = issueRefreshToken(clientId);
+    writeJson(res, 200, { access_token, token_type: 'Bearer', expires_in, refresh_token, scope: 'mcp' });
+    return;
+  }
+
+  if (grant === 'refresh_token') {
+    // Client auth: same posture as authorization_code — public client auth via
+    // client_id alone is acceptable for PKCE-issued refresh tokens; if a secret
+    // is sent, verify it.
+    const clientId = body.client_id ?? (parseOAuthCredentials(req, body)?.clientId ?? '');
+    if (clientId !== OAUTH_CLIENT_ID) {
+      writeJson(res, 401, { error: 'invalid_client' });
+      return;
+    }
+    const sentSecret = body.client_secret ?? (parseOAuthCredentials(req, body)?.clientSecret ?? '');
+    if (sentSecret && !timingSafeEqual(sentSecret, OAUTH_CLIENT_SECRET)) {
+      writeJson(res, 401, { error: 'invalid_client' });
+      return;
+    }
+    const refreshToken = body.refresh_token ?? '';
+    if (!refreshToken) {
+      writeJson(res, 400, { error: 'invalid_request', error_description: 'refresh_token required' });
+      return;
+    }
+    if (!consumeRefreshToken(refreshToken, clientId)) {
+      writeJson(res, 400, {
+        error: 'invalid_grant',
+        error_description: 'refresh_token expired, unknown, or already used',
+      });
+      return;
+    }
+    const { access_token, expires_in } = issueOAuthToken();
+    const refresh_token = issueRefreshToken(clientId);
+    writeJson(res, 200, { access_token, token_type: 'Bearer', expires_in, refresh_token, scope: 'mcp' });
     return;
   }
 
   writeJson(res, 400, {
     error: 'unsupported_grant_type',
-    error_description: `Supported: authorization_code, client_credentials. Got "${grant ?? '(none)'}".`,
+    error_description: `Supported: authorization_code, client_credentials, refresh_token. Got "${grant ?? '(none)'}".`,
   });
 }
 
@@ -765,6 +799,37 @@ function isValidOAuthToken(token: string): boolean {
     oauthTokens.delete(token);
     return false;
   }
+  return true;
+}
+
+// Refresh tokens: 90-day TTL, rotated on every use (RFC 6749 §6 + OAuth 2.1
+// guidance). Stored in-memory; restart drops them and clients fall back to
+// the /authorize flow. Keyed to clientId so tokens can't be exchanged across
+// clients if more are ever registered.
+const oauthRefreshTokens = new Map<string, { clientId: string; expiresAt: number }>();
+
+function issueRefreshToken(clientId: string): string {
+  const token = `cmr_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  oauthRefreshTokens.set(token, {
+    clientId,
+    expiresAt: Date.now() + OAUTH_REFRESH_TTL_SECONDS * 1000,
+  });
+  if (oauthRefreshTokens.size > 100) {
+    const now = Date.now();
+    for (const [k, v] of oauthRefreshTokens) if (v.expiresAt < now) oauthRefreshTokens.delete(k);
+  }
+  return token;
+}
+
+// One-time consume: returns true iff the token was valid and matches the
+// supplied clientId. Always deletes the token, even on failure, so a leaked
+// token can't be retried. Caller mints a fresh refresh_token on success.
+function consumeRefreshToken(token: string, clientId: string): boolean {
+  const entry = oauthRefreshTokens.get(token);
+  if (!entry) return false;
+  oauthRefreshTokens.delete(token);
+  if (entry.expiresAt < Date.now()) return false;
+  if (entry.clientId !== clientId) return false;
   return true;
 }
 
@@ -956,7 +1021,7 @@ async function runHttp(): Promise<void> {
     console.log(`[cmd-mcp]   Health check : GET  /health`);
     if (OAUTH_ENABLED) {
       console.log(`[cmd-mcp]   OAuth authz  : GET  /authorize  (response_type=code, PKCE S256)`);
-      console.log(`[cmd-mcp]   OAuth token  : POST /oauth/token  (grant_type=authorization_code | client_credentials)`);
+      console.log(`[cmd-mcp]   OAuth token  : POST /oauth/token  (grant_type=authorization_code | client_credentials | refresh_token)`);
       console.log(`[cmd-mcp]   OAuth meta   : GET  /.well-known/oauth-protected-resource{,/mcp}`);
       console.log(`[cmd-mcp]   OAuth meta   : GET  /.well-known/oauth-authorization-server`);
       console.log(`[cmd-mcp]   Advertised   : ${PUBLIC_URL}`);
