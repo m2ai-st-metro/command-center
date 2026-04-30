@@ -7,6 +7,7 @@ import {
   addMissionLog,
   listAgents,
   updateAgentStatus,
+  clearAgentsForMission,
   logOutcome,
   updateOutcomeScores,
   setMissionJudgeVerdict,
@@ -376,6 +377,7 @@ export async function approveMission(missionId: string): Promise<void> {
   const taskType = inferTaskType(planReasoning, mission.goal as string);
 
   let currentAgent = agentId;
+  let previousAgent: string = agentId;
   let currentGoal = mission.goal as string;
   let finalResult = '';
   let finalStatus: 'completed' | 'failed' = 'completed';
@@ -388,9 +390,13 @@ export async function approveMission(missionId: string): Promise<void> {
       addMissionLog(missionId, 'info',
         `Judge iteration ${iteration}/${JUDGE_MAX_ITERATIONS} — dispatching to ${currentAgent}`
       );
-      if (currentAgent !== agentId) {
-        updateAgentStatus(agentId, 'available', null);
+      // Release the prior iteration's agent before busying the new one.
+      // Tracking previousAgent (not the original agentId) ensures iter-2
+      // agents are released even when iter-3 routes back to the original.
+      if (previousAgent !== currentAgent) {
+        updateAgentStatus(previousAgent, 'available', null);
         updateAgentStatus(currentAgent, 'busy', missionId);
+        previousAgent = currentAgent;
       }
 
       const attemptStart = Date.now();
@@ -559,8 +565,9 @@ export async function approveMission(missionId: string): Promise<void> {
     setMissionJudgeFinalAction(missionId, finalAction);
     if (finalVerdict) setMissionJudgeVerdict(missionId, finalVerdict);
   } finally {
-    updateAgentStatus(currentAgent, 'available', null);
-    if (currentAgent !== agentId) updateAgentStatus(agentId, 'available', null);
+    // Sweep every agent whose active_mission_id points at this mission —
+    // catches intermediate-iteration agents the per-iter switch may miss.
+    clearAgentsForMission(missionId);
   }
 }
 
@@ -593,14 +600,11 @@ async function dispatchSingleAgent(missionId: string, agentId: string, goal: str
 }
 
 export function cancelMission(missionId: string): void {
-  const mission = getMission(missionId);
   updateMission(missionId, { status: 'cancelled' });
   addMissionLog(missionId, 'info', 'Mission cancelled');
-
-  // Reset agent status if it was assigned
-  if (mission?.agent_id) {
-    updateAgentStatus(mission.agent_id as string, 'available', null);
-  }
+  // Release every agent pointing at this mission, not just mission.agent_id —
+  // R3 may have busied multiple agents across iterations.
+  clearAgentsForMission(missionId);
 }
 
 // ── A2A Dispatch ─────────────────────────────────────────────────────

@@ -359,6 +359,16 @@ export function updateAgentStatus(id: string, status: string, activeMissionId?: 
   ).run(status, activeMissionId ?? null, id);
 }
 
+// Sweep every agent whose active_mission_id points at this mission. Used at
+// mission completion/cancellation to release intermediate-iteration agents
+// that the per-iteration switch logic does not catch when iter N+1 lands on
+// the same agent as iter N-1.
+export function clearAgentsForMission(missionId: string): void {
+  getDb().prepare(
+    "UPDATE agents SET status = 'available', active_mission_id = NULL WHERE active_mission_id = ?"
+  ).run(missionId);
+}
+
 // ── Outcome Logging ──────────────────────────────────────────────────
 
 export interface OutcomeData {
