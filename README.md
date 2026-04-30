@@ -18,6 +18,18 @@
 
 CMD (Command Center) is a mission orchestration platform that routes tasks to the right AI agent. Instead of one model doing everything, CMD classifies intent, selects the best-fit agent from a tiered system, dispatches via the A2A protocol, and tracks outcomes — so every agent gets better over time.
 
+## Live Dashboard
+
+<p align="center">
+  <img src="docs/cmd-dashboard-overview.png" alt="CMD Dashboard — token usage, mission throughput, agent roster, worker pool, Sky-Lynx recs" width="900" />
+</p>
+
+<p align="center">
+  <img src="docs/cmd-dashboard-activity.png" alt="CMD Dashboard — agent success mix, upcoming schedules, system status, recent mission activity" width="900" />
+</p>
+
+The dashboard is the daily operator surface: live token usage and projection, mission throughput, per-agent success mix, scheduled missions, worker-pool capacity, Sky-Lynx routing recommendations, and a real-time mission activity log.
+
 ## Quickstart
 
 ### Prerequisites
@@ -29,7 +41,7 @@ CMD (Command Center) is a mission orchestration platform that routes tasks to th
 ### Install
 
 ```bash
-git clone https://github.com/MatthewSnow2/command-center.git
+git clone https://github.com/m2ai-st-metro/command-center.git
 cd command-center
 npm install
 ```
@@ -187,6 +199,22 @@ Autonomous orchestrators that collaborate with CMD as equals, not subordinates. 
 - **Dimensional routing weights** — Task-type-specific dimension weights (coding: 60% correctness, research: 50% completeness, content: 50% relevance)
 - **Retry + failure handling** — Retry once on failure, cancel dependents, continue independents
 
+### Judge-Reasoner Retry Loop (R3.a)
+- **Iterative correction** — Failed missions are diagnosed by a Reasoner agent, re-routed, and re-dispatched up to N iterations before escalating
+- **Per-iteration agent switching** — Iter N+1 may route to a different agent than iter N; orchestrator releases prior-iter agent on switch
+- **Bounded retries** — `JUDGE_MAX_ITERATIONS` caps loop depth; final verdict + finalAction recorded on the mission
+- **Sweep release** — On completion or cancellation, every agent pointing at the mission is released (catches intermediate-iteration agents the per-iter switch would miss)
+
+### HiveMind (R3.b)
+- **Cross-agent activity log** — Every agent action is appended to a shared activity log other agents can read
+- **Read API** — Agents can query recent HiveMind events to coordinate without direct messaging
+- **Mission-aware** — Events tagged with mission and iteration so retry loops can see prior attempts
+
+### Embedded MCP + Remote MCP (Phase 5B / 5C)
+- **stdio MCP server** — Thin shim over the HTTP API; register `dist/server/mcp/index.js` in Claude Desktop / Code to expose missions, agents, schedules, HiveMind, Sky-Lynx recommendations as tools
+- **Remote MCP** — OAuth 2.1 Authorization Code + PKCE; refresh_token grant for silent renewal; works with hosted clients (Cowork, Claude.ai)
+- **Sky-Lynx event bridge** — Mission lifecycle events (create / approve / complete / fail / cancel) are sunk into Sky-Lynx for cross-session learning
+
 ### Ask Data Chat Advisor
 - **Direct Q&A** — `/api/chat` endpoint for quick questions about the system without spawning agents
 - **Conversational** — Data answers questions about agents, missions, schedules, and status
@@ -283,8 +311,12 @@ Named agents expose standard A2A endpoints:
 | Phase 4 | Done | Coding agent (Ravage) + Content agent + Stock agent loader + bug fixes |
 | Phase 4B | Done | Access model, Named Agents page, capability-aware routing, gap detection, schedules, chatbot UI, onboarding |
 | Phase 5 | Done | Planner-Worker-Judge — Sonnet mission planner, parallel worker pool (8-12 slots), two-layer quality judge, dimensional routing weights, subtask timeline UI |
-| Phase 5B | **Next** | Embedded MCP server — CMD exposes tools (agents, missions, routing, schedules) via MCP on the same port. Zero extra setup for Claude Code users |
-| Phase 6 | Planned | Peer collaboration — Metroplex A2A integration, async priority queue, health monitoring |
+| Phase 5B | Done | Embedded MCP server — CMD exposes missions, agents, HiveMind via stdio MCP shim (`dist/server/mcp/index.js`) for Claude Desktop / Code |
+| Phase 5C | Done | Remote MCP — OAuth 2.1 Auth Code + PKCE with refresh_token grant for hosted clients (Cowork, Claude.ai) |
+| R3.a    | Done | Judge-Reasoner retry loop — iterative diagnosis + re-dispatch with per-iteration agent switching |
+| R3.b    | Done | HiveMind — cross-agent activity log + read API for coordination |
+| Sky-Lynx bridge | Done | Mission lifecycle events sunk into Sky-Lynx for cross-session learning |
+| Phase 6 | **Next** | Peer collaboration — Metroplex A2A integration, async priority queue, health monitoring |
 | Phase 7 | Planned | Tier 4 ClaudeClaw agents — framework-coupled agents in ClaudeClaw runtime |
 
 ## Project Structure
