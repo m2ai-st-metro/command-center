@@ -14,10 +14,12 @@ npm run dev:client     # vite
 npm run build          # build:client (vite) + build:server (tsc -p tsconfig.server.json)
 npm start              # node dist/server/server/index.js  (note nested server/server path)
 
-# Production process management (all 4 services)
+# Production process management (8 services)
 pm2 start ecosystem.config.cjs
 pm2 restart command-center   # restart only orchestrator
 pm2 logs agent-coding        # per-agent logs
+# Full service list: command-center, cmd-mcp, cloudflared-cmd-mcp,
+#   agent-coding, agent-content, agent-data, agent-kup, agent-research
 
 # MCP server (Phase 5B / 031) — thin stdio shim over the HTTP API.
 # Register in Claude Desktop / Code by pointing at dist/server/mcp/index.js.
@@ -26,7 +28,7 @@ npm run mcp                  # run from built output (requires command-center HT
 
 No test runner or linter is configured in `package.json` — don't invent one.
 
-**Default ports:** orchestrator `3142`, research/Soundwave `3143`, coding/Ravage `3144`, content `3145`. Matthew browses from a Surface tablet, so always reference `http://10.0.0.46:3142`, never `localhost`.
+**Default ports:** orchestrator `3142`, research/Soundwave `3143`, coding/Ravage `3144`, content `3145`, data `3146`, kup `3147`, cmd-mcp `3148`. Matthew browses from a Surface tablet, so always reference `http://10.0.0.46:3142`, never `localhost`.
 
 ## Architecture
 
@@ -36,7 +38,7 @@ CMD is a mission orchestrator that routes tasks to tiered agents. The big pictur
 `routes.ts` → `orchestrator.ts` receives a mission, classifies intent, scores agents by skill + capability match, and returns a routing decision. On approval, `planner.ts` (Sonnet) decomposes the mission into ordered subtasks with a dependency DAG. `worker-manager.ts` schedules subtasks across a parallel worker pool (8 default / 12 burst), respecting dependencies and isolating coding subtasks in git worktrees (sequential merge with an ephemeral conflict-resolution agent). `judge.ts` runs two-layer evaluation: algorithmic pre-checks then Sonnet scoring on correctness/completeness/relevance, weighted per task type. `scheduler.ts` re-enqueues recurring missions on configurable intervals.
 
 **2. Agent tiers**
-- **Tier 1 (Named)** — persistent A2A services in `agents/{research,coding,content}/`, each with `AGENT.md` (system prompt) + `agent.config.json` (tier, tools, MCP, maxTurns, canSpawnSubAgents). Dispatched over A2A protocol.
+- **Tier 1 (Named)** — persistent A2A services in `agents/{research,coding,content,data,kup}/`, each with `AGENT.md` (system prompt) + `agent.config.json` (tier, tools, MCP, maxTurns, canSpawnSubAgents). Dispatched over A2A protocol. Named agents: research (Soundwave, :3143), coding (Ravage, :3144), content (:3145), data (dispatch/CoS, :3146), kup (engineering grunt, :3147).
 - **Tier 2 (Custom)** — user-defined markdown prompts stored in SQLite, dispatched via headless Claude Code spawn.
 - **Tier 3 (Stock)** — templates pulled from external repos by `stock-loader.ts`, also Claude Code spawn.
 - **Tier 4 (ClaudeClaw)** — planned.
@@ -54,6 +56,14 @@ SQLite cache of agent capabilities, synced from `agent.config.json` files on sta
 - Routing weights are dimensional and per-task-type (coding: 60% correctness, research: 50% completeness, content: 50% relevance). Don't collapse them into a single score.
 - HIL gate: missions go propose → approve → execute. Never auto-approve in orchestrator flow.
 - The pm2 built `start` script points at `dist/server/server/index.js` (tsc emits a nested `server/` inside `dist/server/`). Don't "fix" this path without updating tsconfig.
+
+### Worktree isolation contract
+
+Per-task worktrees are created at `/tmp/cmd-mt-<task-id>` (PR 027). `shapePromptForWorktree` in `worker-manager.ts` soft-rewrites relative paths to absolute before the task prompt reaches the agent, preventing cwd ambiguity (Phase 1.5). A `.cmd-agent-active/<task_id>` lock file is written on task start and removed on completion/cancel; the WIP auto-snapshot cron checks for this lock before running so in-flight builds don't get snapshotted mid-edit (PR 028). Variable turn budgets are passed via `--max-turns` per task type (PR 029).
+
+### Gotchas
+
+- **Vite UI at :3142 IS the orchestrator API.** The React client and the Express server share the same port via Vite's proxy in dev and via the static middleware in prod. Never `pm2 stop command-center` because the dashboard looks unused — the orchestrator API goes down with it.
 
 ## Integration points
 
