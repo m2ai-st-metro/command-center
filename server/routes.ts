@@ -56,8 +56,36 @@ import {
   deleteCustomAgent,
 } from './custom-agents.js';
 import type { CreateMissionRequest } from '../shared/types.js';
+import { listEntries, listArchived, setPinned, archiveEntry } from './scratchpad.js';
 
 export const router = Router();
+
+// ── Scratchpad (ad-hoc report surface) ────────────────────────────────
+
+router.get('/scratchpad', (_req, res) => {
+  try {
+    res.json({ entries: listEntries(), archived: listArchived() });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.post('/scratchpad/:slug/pin', (req, res) => {
+  const { pinned } = req.body as { pinned?: boolean };
+  if (!setPinned(req.params.slug, pinned !== false)) {
+    res.status(404).json({ error: 'Scratchpad entry not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+router.post('/scratchpad/:slug/archive', (req, res) => {
+  if (!archiveEntry(req.params.slug)) {
+    res.status(404).json({ error: 'Scratchpad entry not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
 
 // ── Chat (lightweight advisor) ────────────────────────────────────────
 
