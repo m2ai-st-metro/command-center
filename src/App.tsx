@@ -10,6 +10,7 @@ import { AITown } from './pages/AITown';
 import { StMetro } from './pages/StMetro';
 import { SkyLynx } from './pages/SkyLynx';
 import { HiveMind } from './pages/HiveMind';
+import { ScratchPad } from './pages/ScratchPad';
 import { Sidebar } from './components/Sidebar';
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
           <Route path="/st-metro" element={<StMetro />} />
           <Route path="/sky-lynx" element={<SkyLynx />} />
           <Route path="/hivemind" element={<HiveMind />} />
+          <Route path="/scratchpad" element={<ScratchPad />} />
         </Routes>
       </main>
     </div>

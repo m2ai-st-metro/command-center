@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { initDatabase, syncAgentCapabilities } from './db.js';
 import { seedDefaultAgents } from './seed.js';
 import { router } from './routes.js';
+import { SCRATCHPAD_DIR, ARCHIVE_DIR } from './scratchpad.js';
 import { startScheduler } from './scheduler.js';
 import { startMissionDispatcher } from './mission-dispatcher.js';
 import { startTriggerEvaluator } from './trigger-eval.js';
@@ -40,6 +41,11 @@ app.use(express.json());
 
 // API routes
 app.use('/api', router);
+
+// Scratchpad artifacts (ad-hoc reports) served from outside the work-tree.
+// Mount _archive first so its prefix is not swallowed by the active mount.
+app.use('/scratchpad-files/_archive', express.static(ARCHIVE_DIR));
+app.use('/scratchpad-files', express.static(SCRATCHPAD_DIR));
 
 // Serve React SPA in production
 const clientDist = path.resolve(PROJECT_ROOT, 'dist', 'client');

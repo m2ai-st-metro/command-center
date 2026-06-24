@@ -6,3 +6,7 @@ store/*.db-shm
 store/stock-repos/
 store/custom-agents/
 .env
+
+# runtime cron state (do not track)
+last_check.txt
+data/intake/last_check.txt

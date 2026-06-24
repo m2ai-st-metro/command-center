@@ -104,7 +104,31 @@ export const api = {
     const suffix = qs.toString() ? `?${qs}` : '';
     return fetchJson<{ events: HivemindEvent[] }>(`/hivemind${suffix}`);
   },
+
+  // Scratchpad (ad-hoc report surface)
+  listScratchpad: () =>
+    fetchJson<{ entries: ScratchpadEntry[]; archived: ScratchpadEntry[] }>('/scratchpad'),
+  pinScratchpad: (slug: string, pinned: boolean) =>
+    fetchJson<{ ok: boolean }>(`/scratchpad/${encodeURIComponent(slug)}/pin`, {
+      method: 'POST',
+      body: JSON.stringify({ pinned }),
+    }),
+  archiveScratchpad: (slug: string) =>
+    fetchJson<{ ok: boolean }>(`/scratchpad/${encodeURIComponent(slug)}/archive`, {
+      method: 'POST',
+    }),
 };
+
+export interface ScratchpadEntry {
+  slug: string;
+  title: string;
+  task: string | null;
+  tags: string[];
+  created: string;
+  pinned: boolean;
+  url: string;
+  archived: boolean;
+}
 
 export interface HivemindEvent {
   id: number;
