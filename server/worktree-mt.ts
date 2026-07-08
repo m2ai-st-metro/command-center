@@ -9,7 +9,7 @@
  * Kept separate from worker-manager.ts's per-subtask worktree code so the two
  * execution paths don't entangle during the rekindle.
  */
-import { execSync } from 'child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -35,7 +35,7 @@ export function worktreeIdsFor(taskId: string): WorktreeIds {
 /** Return true iff `repoPath` is a git repo we can work with. */
 export function isGitRepo(repoPath: string): boolean {
   try {
-    execSync(`git -C "${repoPath}" rev-parse --git-dir`, { stdio: 'pipe' });
+    execFileSync('git', ['-C', repoPath, 'rev-parse', '--git-dir'], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -51,12 +51,12 @@ export function createWorktree(repoPath: string, taskId: string): WorktreeIds {
 
   // Prune any stale worktree with the same path (e.g. from a prior crashed run)
   if (fs.existsSync(worktreePath)) {
-    try { execSync(`git -C "${repoPath}" worktree remove "${worktreePath}" --force`, { stdio: 'pipe' }); } catch { /* ignore */ }
+    try { execFileSync('git', ['-C', repoPath, 'worktree', 'remove', worktreePath, '--force'], { stdio: 'pipe' }); } catch { /* ignore */ }
   }
   // Delete a stale branch of the same name (safe — branches are `cmd-mt-<id8>`)
-  try { execSync(`git -C "${repoPath}" branch -D "${branchName}"`, { stdio: 'pipe' }); } catch { /* ignore */ }
+  try { execFileSync('git', ['-C', repoPath, 'branch', '-D', branchName], { stdio: 'pipe' }); } catch { /* ignore */ }
 
-  execSync(`git -C "${repoPath}" worktree add "${worktreePath}" -b "${branchName}" HEAD`, { stdio: 'pipe' });
+  execFileSync('git', ['-C', repoPath, 'worktree', 'add', worktreePath, '-b', branchName, 'HEAD'], { stdio: 'pipe' });
   return { worktreePath, branchName };
 }
 
@@ -79,23 +79,23 @@ export function mergeWorktree(repoPath: string, branchName: string, worktreePath
   // The worktree may still contain uncommitted changes — we snapshot them as
   // one WIP commit so they can be recovered, then merge.
   try {
-    const dirty = execSync(`git -C "${worktreePath}" status --porcelain`, { stdio: 'pipe' }).toString().trim();
+    const dirty = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], { stdio: 'pipe' }).toString().trim();
     if (dirty) {
-      execSync(`git -C "${worktreePath}" add -A`, { stdio: 'pipe' });
-      execSync(`git -C "${worktreePath}" commit -m "cmd-mt: snapshot uncommitted work" --no-verify`, { stdio: 'pipe' });
+      execFileSync('git', ['-C', worktreePath, 'add', '-A'], { stdio: 'pipe' });
+      execFileSync('git', ['-C', worktreePath, 'commit', '-m', 'cmd-mt: snapshot uncommitted work', '--no-verify'], { stdio: 'pipe' });
     }
   } catch (err) {
     return { merged: false, conflict: false, noChanges: false, error: `snapshot failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 
-  const aheadRaw = execSync(`git -C "${repoPath}" rev-list --count HEAD..${branchName}`, { stdio: 'pipe' }).toString().trim();
+  const aheadRaw = execFileSync('git', ['-C', repoPath, 'rev-list', '--count', `HEAD..${branchName}`], { stdio: 'pipe' }).toString().trim();
   const ahead = parseInt(aheadRaw, 10) || 0;
   if (ahead === 0) {
     return { merged: false, conflict: false, noChanges: true };
   }
 
   try {
-    execSync(`git -C "${repoPath}" merge --no-ff "${branchName}" -m "Merge mission-task branch ${branchName}"`, { stdio: 'pipe' });
+    execFileSync('git', ['-C', repoPath, 'merge', '--no-ff', branchName, '-m', `Merge mission-task branch ${branchName}`], { stdio: 'pipe' });
     return { merged: true, conflict: false, noChanges: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -115,7 +115,7 @@ export function mergeWorktree(repoPath: string, branchName: string, worktreePath
  * the conflict-resolver agent has failed. Safe no-op if no merge is in progress.
  */
 export function abortMerge(repoPath: string): void {
-  try { execSync(`git -C "${repoPath}" merge --abort`, { stdio: 'pipe' }); } catch { /* ignore */ }
+  try { execFileSync('git', ['-C', repoPath, 'merge', '--abort'], { stdio: 'pipe' }); } catch { /* ignore */ }
 }
 
 /**
@@ -124,6 +124,6 @@ export function abortMerge(repoPath: string): void {
  * should be preserved for human inspection in that case.
  */
 export function cleanupWorktree(repoPath: string, worktreePath: string, branchName: string): void {
-  try { execSync(`git -C "${repoPath}" worktree remove "${worktreePath}" --force`, { stdio: 'pipe' }); } catch { /* ignore */ }
-  try { execSync(`git -C "${repoPath}" branch -D "${branchName}"`, { stdio: 'pipe' }); } catch { /* ignore */ }
+  try { execFileSync('git', ['-C', repoPath, 'worktree', 'remove', worktreePath, '--force'], { stdio: 'pipe' }); } catch { /* ignore */ }
+  try { execFileSync('git', ['-C', repoPath, 'branch', '-D', branchName], { stdio: 'pipe' }); } catch { /* ignore */ }
 }
