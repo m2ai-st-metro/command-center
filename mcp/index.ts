@@ -592,7 +592,16 @@ function handleAuthorizeEndpoint(req: http.IncomingMessage, res: http.ServerResp
   // Validate before redirecting. If redirect_uri is bad, we MUST NOT redirect
   // (RFC 6749 §4.1.2.1 — render error locally). If other params are bad,
   // redirect with error=... so the client can surface it.
-  if (!redirectUri || !/^https:\/\/(claude\.ai|.*\.anthropic\.com)\//.test(redirectUri)) {
+  let parsedRedirectUri: URL;
+  try {
+    parsedRedirectUri = new URL(redirectUri);
+  } catch {
+    writeJson(res, 400, { error: 'invalid_redirect_uri', redirect_uri: redirectUri });
+    return;
+  }
+  if (!redirectUri ||
+      parsedRedirectUri.protocol !== 'https:' ||
+      (parsedRedirectUri.hostname !== 'claude.ai' && !parsedRedirectUri.hostname.endsWith('.anthropic.com'))) {
     writeJson(res, 400, { error: 'invalid_redirect_uri', redirect_uri: redirectUri });
     return;
   }
