@@ -124,10 +124,16 @@ function detectRepoPath(subtask: MissionSubtask): string | null {
     } catch { /* not a git repo */ }
   }
 
-  // Check if task_type is coding — if so, try common project locations
+  // Write-capable coding subtasks must have a resolvable git repo path to get a
+  // worktree. Returning null here would let them run from $HOME with Write/Edit/Bash
+  // and no isolation — that is the A15 threat. Throw instead so the caller records
+  // a failure rather than silently launching an unconfined agent.
   if (subtask.task_type === 'coding' || subtask.agent_id === 'coding') {
-    // Default to no repo — worker runs from home
-    return null;
+    throw new Error(
+      `Coding subtask has no resolvable git repo path in its description. ` +
+      `Include a repo path (e.g. "in /home/apexaipc/projects/foo") or supply repo_path explicitly. ` +
+      `Refusing to run write-capable agent outside a worktree (A15).`
+    );
   }
 
   return null;
