@@ -86,7 +86,9 @@ export function startAgentServer(config: AgentConfig): void {
   }
 
   const app = express();
-  app.use(cors());
+  app.use(cors({
+    origin: ['http://127.0.0.1:3142', 'http://localhost:3142', 'http://10.0.0.46:3142'],
+  }));
   app.use(express.json());
 
   // ── A2A: Agent Card ──────────────────────────────────────────────
@@ -205,7 +207,7 @@ export function startAgentServer(config: AgentConfig): void {
   });
 
   // ── Start ────────────────────────────────────────────────────────
-  app.listen(config.port, '0.0.0.0', () => {
+  app.listen(config.port, '127.0.0.1', () => {
     console.log(`[${config.name}] A2A agent running on port ${config.port}`);
     console.log(`[${config.name}] Agent card: http://localhost:${config.port}/.well-known/agent.json`);
   });
