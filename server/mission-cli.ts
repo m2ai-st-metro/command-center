@@ -16,6 +16,9 @@
 import type { MissionTask } from '../shared/types.js';
 
 const CMD_URL = (process.env.CMD_URL ?? 'http://localhost:3142').replace(/\/$/, '');
+// Bearer for mutating /api routes (Q-20260708-0007). Sourced from ~/.env.shared by
+// the caller's env; every mission-cli caller (crons, Data dispatch) must have it.
+const CMD_API_TOKEN = process.env.CMD_API_TOKEN ?? '';
 
 interface ParsedArgs {
   flags: Record<string, string | boolean>;
@@ -77,7 +80,11 @@ Env:
 async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${CMD_URL}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(CMD_API_TOKEN ? { Authorization: `Bearer ${CMD_API_TOKEN}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   if (!res.ok) {
     const text = await res.text();

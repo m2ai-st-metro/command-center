@@ -449,6 +449,21 @@ router.post('/tasks', async (req, res) => {
       return;
     }
   }
+  // P2 (Q-20260708-0007): constrain repo_path to an allowlist of roots. execFileSync
+  // (A6) already blocks shell injection; this stops arbitrary-dir targeting (git -C
+  // against, e.g., a repo outside the project tree). path.resolve collapses `..`;
+  // symlink canonicalization is a further hardening if needed.
+  let validatedRepoPath: string | undefined;
+  if (repo_path?.trim()) {
+    const rp = path.resolve(repo_path.trim());
+    const ALLOWED_REPO_ROOTS = ['/home/apexaipc/projects'];
+    const allowed = ALLOWED_REPO_ROOTS.some((root) => rp === root || rp.startsWith(root + path.sep));
+    if (!allowed) {
+      res.status(400).json({ error: `repo_path must be under an allowed root: ${ALLOWED_REPO_ROOTS.join(', ')}` });
+      return;
+    }
+    validatedRepoPath = rp;
+  }
   const id = uuidv4();
   const task = createMissionTask({
     id,
@@ -457,7 +472,7 @@ router.post('/tasks', async (req, res) => {
     prompt: prompt.trim(),
     priority,
     skill: skill?.trim() || undefined,
-    repo_path: repo_path?.trim() || undefined,
+    repo_path: validatedRepoPath,
     max_turns: max_turns ?? undefined,
   });
   // Fire-and-forget dispatch — returns immediately with queued task
