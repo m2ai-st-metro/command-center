@@ -27,6 +27,9 @@ import { z } from 'zod';
 // ── Config ──────────────────────────────────────────────────────────
 
 const CMD_BASE_URL = process.env.CMD_BASE_URL ?? 'http://localhost:3142';
+// Bearer for CMD's mutating /api routes (Q-20260708-0007). Sourced from ~/.env.shared
+// via the cmd-mcp start wrapper (scripts/pm2-cmd-mcp.sh).
+const CMD_API_TOKEN = process.env.CMD_API_TOKEN ?? '';
 const MCP_TRANSPORT = (process.env.MCP_TRANSPORT ?? 'stdio').toLowerCase();
 const MCP_PORT = Number.parseInt(process.env.MCP_PORT ?? '3150', 10);
 const MCP_HOST = process.env.MCP_HOST ?? '127.0.0.1';
@@ -49,6 +52,7 @@ async function cmdFetch<T = unknown>(path: string, init?: RequestInit): Promise<
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(CMD_API_TOKEN ? { Authorization: `Bearer ${CMD_API_TOKEN}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
