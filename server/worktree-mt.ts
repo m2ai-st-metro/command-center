@@ -60,6 +60,18 @@ export function createWorktree(repoPath: string, taskId: string): WorktreeIds {
   return { worktreePath, branchName };
 }
 
+/**
+ * Create a worktree at an explicitly provided path and branch name. Use when
+ * the caller manages its own naming convention (e.g. worker-manager subtask paths).
+ */
+export function createWorktreeAt(repoPath: string, worktreePath: string, branchName: string): void {
+  if (fs.existsSync(worktreePath)) {
+    try { execFileSync('git', ['-C', repoPath, 'worktree', 'remove', worktreePath, '--force'], { stdio: 'pipe' }); } catch { /* ignore */ }
+  }
+  try { execFileSync('git', ['-C', repoPath, 'branch', '-D', branchName], { stdio: 'pipe' }); } catch { /* ignore */ }
+  execFileSync('git', ['-C', repoPath, 'worktree', 'add', worktreePath, '-b', branchName, 'HEAD'], { stdio: 'pipe' });
+}
+
 export interface MergeOutcome {
   merged: boolean;
   conflict: boolean;

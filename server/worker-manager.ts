@@ -16,6 +16,7 @@ import {
 import { getStockAgentPrompt } from './stock-loader.js';
 import { getCustomAgentPrompt } from './custom-agents.js';
 import { resolveConflict } from './conflict-resolver.js';
+import { createWorktreeAt, mergeWorktree, cleanupWorktree, abortMerge } from './worktree-mt.js';
 import { emitHivemind } from './hivemind.js';
 import type { MissionSubtask, WorkerPoolConfig } from '../shared/types.js';
 import { DEFAULT_POOL_CONFIG } from '../shared/types.js';
@@ -112,6 +113,8 @@ function cleanupMissionContext(missionId: string): void {
 }
 
 // ── Worktree Manager ────────────────────────────────────────────
+// createWorktreeAt / mergeWorktree / cleanupWorktree / abortMerge
+// are imported from worktree-mt.ts — single implementation.
 
 function detectRepoPath(subtask: MissionSubtask): string | null {
   // Heuristic: if the subtask description mentions a specific project path, extract it
@@ -137,37 +140,6 @@ function detectRepoPath(subtask: MissionSubtask): string | null {
   }
 
   return null;
-}
-
-function createWorktree(repoPath: string, branchName: string): string {
-  const worktreePath = path.join('/tmp', `cmd-wt-${branchName}`);
-
-  if (fs.existsSync(worktreePath)) {
-    // Clean up stale worktree
-    try { execFileSync('git', ['-C', repoPath, 'worktree', 'remove', worktreePath, '--force'], { stdio: 'pipe' }); } catch { /* ignore */ }
-  }
-
-  execFileSync('git', ['-C', repoPath, 'worktree', 'add', worktreePath, '-b', branchName, 'HEAD'], { stdio: 'pipe' });
-  return worktreePath;
-}
-
-function mergeWorktree(repoPath: string, branchName: string, missionId: string): { success: boolean; conflict: boolean } {
-  try {
-    execFileSync('git', ['-C', repoPath, 'merge', '--no-ff', branchName, '-m', `Merge subtask branch ${branchName}`], { stdio: 'pipe' });
-    return { success: true, conflict: false };
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    if (errMsg.includes('CONFLICT') || errMsg.includes('Merge conflict')) {
-      return { success: false, conflict: true };
-    }
-    addMissionLog(missionId, 'error', `Merge failed for ${branchName}: ${errMsg}`);
-    return { success: false, conflict: false };
-  }
-}
-
-function cleanupWorktree(repoPath: string, worktreePath: string, branchName: string): void {
-  try { execFileSync('git', ['-C', repoPath, 'worktree', 'remove', worktreePath, '--force'], { stdio: 'pipe' }); } catch { /* ignore */ }
-  try { execFileSync('git', ['-C', repoPath, 'branch', '-D', branchName], { stdio: 'pipe' }); } catch { /* ignore */ }
 }
 
 // ── Subtask Executor ────────────────────────────────────────────
@@ -214,8 +186,9 @@ function executeSubtask(
 
     if (repoPath) {
       branchName = `cmd-${missionId.slice(0, 8)}-st${subtaskIndex}`;
+      worktreePath = path.join('/tmp', `cmd-wt-${branchName}`);
       try {
-        worktreePath = createWorktree(repoPath, branchName);
+        createWorktreeAt(repoPath, worktreePath, branchName);
         updateWorkerSlot(slotId, { worktree_path: worktreePath });
         addMissionLog(missionId, 'info', `Worktree created: ${worktreePath} (branch: ${branchName})`);
       } catch (err) {
@@ -519,22 +492,31 @@ async function mergeAllWorktrees(missionId: string, worktrees: WorktreeInfo[]): 
   addMissionLog(missionId, 'info', `Merging ${worktrees.length} worktree(s) sequentially...`);
 
   for (const wt of worktrees) {
-    const { success, conflict } = mergeWorktree(wt.repoPath, wt.branchName, missionId);
+    // mergeWorktree snapshots any uncommitted edits before merging and uses
+    // rev-list to detect a true no-op — fixing Q-20260708-0003.
+    const outcome = mergeWorktree(wt.repoPath, wt.branchName, wt.worktreePath);
+    let skipCleanup = false;
 
-    if (success) {
+    if (outcome.merged) {
       addMissionLog(missionId, 'info', `Merged branch ${wt.branchName} successfully`);
-    } else if (conflict) {
+    } else if (outcome.noChanges) {
+      addMissionLog(missionId, 'info', `Branch ${wt.branchName} had no new commits — no-op merge`);
+    } else if (outcome.conflict) {
       const resolved = await resolveConflict(wt.repoPath, {
         onLog: (level, message) => addMissionLog(missionId, level, message),
       });
       if (!resolved) {
-        addMissionLog(missionId, 'error', `Unresolved merge conflict for branch ${wt.branchName} — aborting merge`);
-        try { execFileSync('git', ['-C', wt.repoPath, 'merge', '--abort'], { stdio: 'pipe' }); } catch { /* ignore */ }
+        addMissionLog(missionId, 'error', `Unresolved merge conflict for branch ${wt.branchName} — aborting`);
+        abortMerge(wt.repoPath);
+        skipCleanup = true; // preserve worktree for human inspection
       }
+    } else {
+      addMissionLog(missionId, 'error', `Merge failed for ${wt.branchName}: ${outcome.error ?? 'unknown'}`);
     }
 
-    // Cleanup worktree and branch
-    cleanupWorktree(wt.repoPath, wt.worktreePath, wt.branchName);
+    if (!skipCleanup) {
+      cleanupWorktree(wt.repoPath, wt.worktreePath, wt.branchName);
+    }
   }
 }
 
