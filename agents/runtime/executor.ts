@@ -59,8 +59,13 @@ function runClaudeCode(
   cwd?: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Determine tools from capabilities or use defaults
-    const tools = capabilities?.tools ?? DEFAULT_TOOLS;
+    // Determine tools from capabilities or use defaults.
+    // When canSpawnSubAgents is set, ensure the Agent tool is present — the manifest
+    // declares intent but the executor is the enforcement point.
+    const tools = [...(capabilities?.tools ?? DEFAULT_TOOLS)];
+    if (capabilities?.canSpawnSubAgents && !tools.includes('Agent')) {
+      tools.push('Agent');
+    }
     const maxTurns = capabilities?.maxTurns ?? 25;
 
     const args = [
@@ -85,13 +90,6 @@ function runClaudeCode(
       // Isolate from user's personal MCP servers (Gmail, Notion, etc.)
       args.push('--strict-mcp-config');
       addTaskLog(taskId, 'info', `MCP config: ${capabilities.mcpConfigPath} (strict isolation)`);
-    }
-
-    // If agent can spawn sub-agents, add the Agent tool to allowed tools
-    if (capabilities?.canSpawnSubAgents && !tools.includes('Agent')) {
-      args.splice(args.indexOf('--allowedTools') + 1, 0);
-      // Agent tool is already in the --allowedTools list if canSpawnSubAgents is true
-      // and was specified in agent.md tools array. No extra handling needed.
     }
 
     // Build env without ANTHROPIC_API_KEY (use Max OAuth)
