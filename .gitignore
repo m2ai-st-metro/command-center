@@ -5,8 +5,21 @@ store/*.db-wal
 store/*.db-shm
 store/stock-repos/
 store/custom-agents/
-.env
 
-# runtime cron state (do not track)
-last_check.txt
+# secrets — bare .env does NOT match .env.bak etc.; use explicit patterns
+.env
+.env.*
+!.env.example
+*.bak-rotate
+
+# logs
+*.log
+
+# build artifacts committed next to source (B10)
+shared/*.js
+shared/*.d.ts
+
+# runtime cron / intake state (do not track)
+/last_check.txt
+/data/
 data/intake/last_check.txt
