@@ -27,6 +27,9 @@ import { z } from 'zod';
 // ── Config ──────────────────────────────────────────────────────────
 
 const CMD_BASE_URL = process.env.CMD_BASE_URL ?? 'http://localhost:3142';
+// Bearer for CMD's mutating /api routes (Q-20260708-0007). Sourced from ~/.env.shared
+// via the cmd-mcp start wrapper (scripts/pm2-cmd-mcp.sh).
+const CMD_API_TOKEN = process.env.CMD_API_TOKEN ?? '';
 const MCP_TRANSPORT = (process.env.MCP_TRANSPORT ?? 'stdio').toLowerCase();
 const MCP_PORT = Number.parseInt(process.env.MCP_PORT ?? '3150', 10);
 const MCP_HOST = process.env.MCP_HOST ?? '127.0.0.1';
@@ -49,6 +52,7 @@ async function cmdFetch<T = unknown>(path: string, init?: RequestInit): Promise<
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(CMD_API_TOKEN ? { Authorization: `Bearer ${CMD_API_TOKEN}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -592,7 +596,16 @@ function handleAuthorizeEndpoint(req: http.IncomingMessage, res: http.ServerResp
   // Validate before redirecting. If redirect_uri is bad, we MUST NOT redirect
   // (RFC 6749 §4.1.2.1 — render error locally). If other params are bad,
   // redirect with error=... so the client can surface it.
-  if (!redirectUri || !/^https:\/\/(claude\.ai|.*\.anthropic\.com)\//.test(redirectUri)) {
+  let parsedRedirectUri: URL;
+  try {
+    parsedRedirectUri = new URL(redirectUri);
+  } catch {
+    writeJson(res, 400, { error: 'invalid_redirect_uri', redirect_uri: redirectUri });
+    return;
+  }
+  if (!redirectUri ||
+      parsedRedirectUri.protocol !== 'https:' ||
+      (parsedRedirectUri.hostname !== 'claude.ai' && !parsedRedirectUri.hostname.endsWith('.anthropic.com'))) {
     writeJson(res, 400, { error: 'invalid_redirect_uri', redirect_uri: redirectUri });
     return;
   }

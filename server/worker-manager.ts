@@ -1,4 +1,4 @@
-import { spawn, execSync } from 'child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -119,15 +119,21 @@ function detectRepoPath(subtask: MissionSubtask): string | null {
   if (pathMatch) {
     const p = pathMatch[1].replace('~', process.env.HOME ?? '/home/apexaipc');
     try {
-      execSync(`git -C "${p}" rev-parse --git-dir`, { stdio: 'pipe' });
+      execFileSync('git', ['-C', p, 'rev-parse', '--git-dir'], { stdio: 'pipe' });
       return p;
     } catch { /* not a git repo */ }
   }
 
-  // Check if task_type is coding — if so, try common project locations
+  // Write-capable coding subtasks must have a resolvable git repo path to get a
+  // worktree. Returning null here would let them run from $HOME with Write/Edit/Bash
+  // and no isolation — that is the A15 threat. Throw instead so the caller records
+  // a failure rather than silently launching an unconfined agent.
   if (subtask.task_type === 'coding' || subtask.agent_id === 'coding') {
-    // Default to no repo — worker runs from home
-    return null;
+    throw new Error(
+      `Coding subtask has no resolvable git repo path in its description. ` +
+      `Include a repo path (e.g. "in /home/apexaipc/projects/foo") or supply repo_path explicitly. ` +
+      `Refusing to run write-capable agent outside a worktree (A15).`
+    );
   }
 
   return null;
@@ -138,16 +144,16 @@ function createWorktree(repoPath: string, branchName: string): string {
 
   if (fs.existsSync(worktreePath)) {
     // Clean up stale worktree
-    try { execSync(`git -C "${repoPath}" worktree remove "${worktreePath}" --force`, { stdio: 'pipe' }); } catch { /* ignore */ }
+    try { execFileSync('git', ['-C', repoPath, 'worktree', 'remove', worktreePath, '--force'], { stdio: 'pipe' }); } catch { /* ignore */ }
   }
 
-  execSync(`git -C "${repoPath}" worktree add "${worktreePath}" -b "${branchName}" HEAD`, { stdio: 'pipe' });
+  execFileSync('git', ['-C', repoPath, 'worktree', 'add', worktreePath, '-b', branchName, 'HEAD'], { stdio: 'pipe' });
   return worktreePath;
 }
 
 function mergeWorktree(repoPath: string, branchName: string, missionId: string): { success: boolean; conflict: boolean } {
   try {
-    execSync(`git -C "${repoPath}" merge --no-ff "${branchName}" -m "Merge subtask branch ${branchName}"`, { stdio: 'pipe' });
+    execFileSync('git', ['-C', repoPath, 'merge', '--no-ff', branchName, '-m', `Merge subtask branch ${branchName}`], { stdio: 'pipe' });
     return { success: true, conflict: false };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -160,8 +166,8 @@ function mergeWorktree(repoPath: string, branchName: string, missionId: string):
 }
 
 function cleanupWorktree(repoPath: string, worktreePath: string, branchName: string): void {
-  try { execSync(`git -C "${repoPath}" worktree remove "${worktreePath}" --force`, { stdio: 'pipe' }); } catch { /* ignore */ }
-  try { execSync(`git -C "${repoPath}" branch -D "${branchName}"`, { stdio: 'pipe' }); } catch { /* ignore */ }
+  try { execFileSync('git', ['-C', repoPath, 'worktree', 'remove', worktreePath, '--force'], { stdio: 'pipe' }); } catch { /* ignore */ }
+  try { execFileSync('git', ['-C', repoPath, 'branch', '-D', branchName], { stdio: 'pipe' }); } catch { /* ignore */ }
 }
 
 // ── Subtask Executor ────────────────────────────────────────────
@@ -523,7 +529,7 @@ async function mergeAllWorktrees(missionId: string, worktrees: WorktreeInfo[]): 
       });
       if (!resolved) {
         addMissionLog(missionId, 'error', `Unresolved merge conflict for branch ${wt.branchName} — aborting merge`);
-        try { execSync(`git -C "${wt.repoPath}" merge --abort`, { stdio: 'pipe' }); } catch { /* ignore */ }
+        try { execFileSync('git', ['-C', wt.repoPath, 'merge', '--abort'], { stdio: 'pipe' }); } catch { /* ignore */ }
       }
     }
 

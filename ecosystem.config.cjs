@@ -2,7 +2,10 @@ module.exports = {
   apps: [
     {
       name: 'command-center',
-      script: 'dist/server/server/index.js',
+      // Q-20260708-0007: start via wrapper that sources ~/.env.shared so the
+      // CMD_API_TOKEN /api bearer reaches the process (PM2's ambient env is frozen).
+      script: 'scripts/pm2-command-center.sh',
+      interpreter: 'bash',
       cwd: __dirname,
       env: {
         NODE_ENV: 'production',
@@ -84,7 +87,10 @@ module.exports = {
       // ever re-enabled as defense-in-depth, source ~/.env.shared with
       // `set -a && source ~/.env.shared && set +a` before starting pm2.
       name: 'cmd-mcp',
-      script: 'dist/server/mcp/index.js',
+      // Q-20260708-0007: wrapper sources ~/.env.shared so cmd-mcp sends the
+      // CMD_API_TOKEN bearer on its outbound calls to CMD's mutating /api routes.
+      script: 'scripts/pm2-cmd-mcp.sh',
+      interpreter: 'bash',
       cwd: __dirname,
       env: {
         NODE_ENV: 'production',

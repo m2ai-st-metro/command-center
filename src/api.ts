@@ -1,9 +1,23 @@
 const BASE = '/api';
 
+// Bearer for mutating /api routes (Q-20260708-0007). The server injects this into
+// index.html at serve time (window.__CMD_TOKEN__), so it is never in a committed
+// bundle. GET reads don't need it; sending it on every request is harmless.
+declare global {
+  interface Window {
+    __CMD_TOKEN__?: string;
+  }
+}
+const CMD_TOKEN = typeof window !== 'undefined' ? window.__CMD_TOKEN__ ?? '' : '';
+
 async function fetchJson<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(CMD_TOKEN ? { Authorization: `Bearer ${CMD_TOKEN}` } : {}),
+      ...(opts?.headers ?? {}),
+    },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
