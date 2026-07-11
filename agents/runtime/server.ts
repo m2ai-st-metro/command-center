@@ -153,13 +153,14 @@ export function startAgentServer(config: AgentConfig): void {
       addTaskLog(task.id, 'info', `cwd ignored (not a /tmp/cmd-mt-* path): ${body.cwd}`);
     }
 
-    // Fire-and-forget execution — pass capabilities for dynamic tool/MCP selection
+    // Fire-and-forget execution — pass capabilities for dynamic tool/MCP selection.
+    // Priority: per-request timeout_ms > agent.md timeout > AgentConfig.timeout_ms (hardcoded default).
     executeTask(
       task.id,
       body.goal,
       systemPrompt,
       body.context,
-      body.timeout_ms ?? config.timeout_ms,
+      body.timeout_ms ?? capabilities?.timeout ?? config.timeout_ms,
       effectiveCapabilities,
       resolvedCwd,
     ).catch((err) => {

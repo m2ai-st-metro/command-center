@@ -12,6 +12,5 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src", "shared", "vite-env.d.ts"],
-  "references": [{ "path": "./tsconfig.server.json" }]
+  "include": ["src", "shared", "vite-env.d.ts"]
 }

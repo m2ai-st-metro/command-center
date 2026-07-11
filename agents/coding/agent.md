@@ -2,7 +2,7 @@
 name: Ravage
 description: Software engineering — write, modify, debug, refactor, and review code
 model: claude-sonnet-4-6
-tools: [Read, Glob, Grep, Write, Edit, Bash]
+tools: [Read, Glob, Grep, Write, Edit, Bash, Agent]
 tier: 1
 skills: [coding, debugging, refactoring, testing, git, pr-review-toolkit, code-review, silent-failure-detection, type-design-analysis, comment-analysis, aar, failure-postmortem, failure-asymmetry]
 mcpServers: []
