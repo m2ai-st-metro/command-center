@@ -511,7 +511,15 @@ async function mergeAllWorktrees(missionId: string, worktrees: WorktreeInfo[]): 
         skipCleanup = true; // preserve worktree for human inspection
       }
     } else {
-      addMissionLog(missionId, 'error', `Merge failed for ${wt.branchName}: ${outcome.error ?? 'unknown'}`);
+      // Same preservation rule as the conflict path: a failed snapshot commit leaves dirty
+      // edits in the worktree, and a non-conflict merge failure leaves a committed-but-unmerged
+      // branch — force-cleanup on either would destroy work (the exact Q-20260708-0003 bug class).
+      addMissionLog(
+        missionId,
+        'error',
+        `Merge failed for ${wt.branchName}: ${outcome.error ?? 'unknown'} — preserving worktree and branch for inspection`,
+      );
+      skipCleanup = true;
     }
 
     if (!skipCleanup) {
