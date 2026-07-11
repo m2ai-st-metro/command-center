@@ -25,6 +25,24 @@ interface ParsedArgs {
   positional: string[];
 }
 
+const VALID_FLAGS: Record<string, Set<string>> = {
+  create: new Set(['agent', 'title', 'skill', 'repo', 'priority', 'max-turns', 'json']),
+  list:   new Set(['limit', 'status', 'json']),
+  result: new Set(['json']),
+  cancel: new Set(),
+};
+
+function rejectUnknownFlags(subcommand: string, flags: Record<string, string | boolean>): void {
+  const allowed = VALID_FLAGS[subcommand];
+  if (!allowed) return;
+  for (const key of Object.keys(flags)) {
+    if (!allowed.has(key)) {
+      console.error(`Error: unknown flag: --${key}\n`);
+      process.exit(1);
+    }
+  }
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const flags: Record<string, string | boolean> = {};
   const positional: string[] = [];
@@ -214,6 +232,7 @@ async function main(): Promise<void> {
   const args = parseArgs(rest);
 
   try {
+    rejectUnknownFlags(subcommand, args.flags);
     switch (subcommand) {
       case 'create': await cmdCreate(args); break;
       case 'list':   await cmdList(args); break;
