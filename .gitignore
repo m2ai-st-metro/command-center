@@ -5,8 +5,20 @@ store/*.db-wal
 store/*.db-shm
 store/stock-repos/
 store/custom-agents/
-.env
 
-# runtime cron state (do not track)
-last_check.txt
+# secrets and backup artifacts (Layer 1 — per secret-scanning.md)
+.env
+.env.*
+!.env.example
+*.bak-rotate
+*.log
+
+# runtime / intake state (no secrets, but not repo content)
+/last_check.txt
+/data/
 data/intake/last_check.txt
+
+# stale build output committed next to source (B10)
+# tsx/Node prefer a real .js over .ts so build output in shared/ would shadow source
+shared/*.js
+shared/*.d.ts
