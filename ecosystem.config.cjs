@@ -118,5 +118,50 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
+    {
+      // Internal PDF-rendering microservice (puppeteer, headless). Hardcodes 127.0.0.1:3000 in
+      // server.js (rebound from 0.0.0.0 per Q-20260708-0008) — no required env vars beyond
+      // NODE_ENV. Folded in per Q-20260708-0008 (PM2 drift: was dump-only, not defined here).
+      name: 'pdf-service',
+      script: 'server.js',
+      interpreter: 'node',
+      cwd: '/home/apexaipc/pdf-service',
+      env: {
+        NODE_ENV: 'production',
+      },
+      exp_backoff_restart_delay: 1000,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+    {
+      // Virtual X framebuffer — Playwright/browser-automation dependency for the Galvatron
+      // agent (NOT used by pdf-service, which runs puppeteer headless). Raw binary, no
+      // interpreter, no env vars required. Folded in per Q-20260708-0008 (was dump-only).
+      name: 'xvfb-display',
+      script: '/usr/bin/Xvfb',
+      args: ':99 -screen 0 1920x1080x24 -nolisten tcp',
+      interpreter: 'none',
+      cwd: '/home/apexaipc/.claudeclaw/agents/galvatron',
+      exp_backoff_restart_delay: 1000,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+    {
+      // MCP server (coordination). Needs COORDINATION_MCP_TOKEN, SPARK_OAUTH_CLIENT_ID,
+      // SPARK_OAUTH_CLIENT_SECRET, COORDINATION_MCP_PUBLIC_URL — none of which reach a bare
+      // `pm2 start`, so route through a wrapper that sources ~/.env.shared (same pattern as
+      // cmd-mcp/command-center above; see Q-20260708-0007 on PM2's frozen ambient env).
+      // COORDINATION_MCP_PORT is deliberately unset -> source default 3179 (matches live).
+      name: 'coordination-mcp',
+      script: 'scripts/pm2-coordination-mcp.sh',
+      interpreter: 'bash',
+      cwd: __dirname,
+      env: {
+        NODE_ENV: 'production',
+      },
+      exp_backoff_restart_delay: 1000,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
   ],
 };
