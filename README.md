@@ -73,42 +73,46 @@ CMD runs at `http://localhost:3142` by default. Set `COMMAND_CENTER_PORT` to cha
 
 ### Add Named Agents (Optional)
 
-Named agents are persistent A2A services. Each has its own directory under `agents/` with a capability config:
+Named agents are persistent A2A services. Each has its own directory under `agents/` with a single `agent.md` file that carries both the YAML frontmatter manifest and the system prompt body:
 
 ```bash
 agents/
 ├── research/              # Soundwave — web research + analysis
-│   ├── AGENT.md           # System prompt
-│   ├── agent.config.json  # Capabilities (tools, MCP, limits)
+│   ├── agent.md           # YAML frontmatter manifest + system prompt body
 │   ├── .claude/mcp.json   # MCP server config (firecrawl, etc.)
 │   └── index.ts           # A2A server entry point
 ├── coding/                # Ravage — software engineering
-│   ├── AGENT.md
-│   ├── agent.config.json
+│   ├── agent.md
 │   └── index.ts
 ├── content/               # Content writing + social media
-│   ├── AGENT.md
-│   ├── agent.config.json
+│   ├── agent.md
 │   └── index.ts
 └── runtime/               # Shared A2A runtime (server, executor, task store)
 ```
 
-Each `agent.config.json` declares the agent's tier, tools, MCP servers, and limits:
+The `agent.md` frontmatter declares the agent's tier, tools, MCP servers, and limits:
 
-```json
-{
-  "tier": 1,
-  "name": "Soundwave",
-  "skills": ["research", "analysis", "web-search"],
-  "tools": ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"],
-  "mcpServers": ["firecrawl"],
-  "canSpawnSubAgents": false,
-  "maxTurns": 30,
-  "timeout": 900000
-}
+```yaml
+---
+tier: 1
+tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
+  - WebSearch
+  - WebFetch
+mcpServers:
+  - firecrawl
+canSpawnSubAgents: false
+maxTurns: 30
+timeout: 900000
+model: claude-sonnet-4-6
+skillModels: {}
+---
 ```
 
-These configs are the **source of truth** — synced to a capability registry on startup. Register agents in `ecosystem.config.cjs` and `server/seed.ts`, then restart pm2.
+The `agent.md` file is the **source of truth** — the shared runtime (`agents/runtime/server.ts`) parses it via `readAgentMd` at startup and uses the frontmatter to construct `--allowedTools`, `--mcp-config`, `--model`, and `--max-turns` for each Claude Code invocation. The capability registry (SQLite) is seeded from this file and overwritten on each restart. Register agents in `ecosystem.config.cjs` and `server/seed.ts`, then restart pm2.
 
 ### Sync Stock Agents
 
@@ -136,7 +140,7 @@ CMD uses a four-tier agent system. Higher tiers have more autonomy and capabilit
 Persistent specialists with their own A2A server, dedicated process, and per-agent capability config. They can be tasked by the orchestrator **or act independently** via cron, direct A2A calls, or manual triggers.
 
 - Own A2A endpoint (dedicated port)
-- Own system prompt (`AGENT.md`) + capability config (`agent.config.json`)
+- Single `agent.md` file: YAML frontmatter manifest (tier, tools, mcpServers, maxTurns, canSpawnSubAgents, timeout, model, skillModels) + system prompt body below the `---` delimiter
 - Per-agent tool access (WebSearch, WebFetch, MCP servers via `--allowedTools` + `--mcp-config`)
 - `--strict-mcp-config` isolation prevents leaking personal MCP servers
 - Can spawn sub-agents (per config — key differentiator for Ravage)
@@ -231,8 +235,8 @@ Autonomous orchestrators that collaborate with CMD as equals, not subordinates. 
 - **Onboarding** — Example prompts for first-time users
 
 ### Agent Runtime
-- **Generic A2A server** — Any agent with an `AGENT.md` gets a standards-compliant A2A endpoint
-- **Per-agent capabilities** — Dynamic `--allowedTools`, `--mcp-config`, `--strict-mcp-config` from `agent.config.json`
+- **Generic A2A server** — Any agent with an `agent.md` gets a standards-compliant A2A endpoint
+- **Per-agent capabilities** — Dynamic `--allowedTools`, `--mcp-config`, `--strict-mcp-config` built from `agent.md` frontmatter at startup
 - **Capability registry** — SQLite cache synced from config files on startup
 - **Claude Code executor** — Headless Claude Code sessions with dynamic tool/MCP injection
 - **Task store** — In-memory task tracking with state machine (queued → running → completed/failed)
