@@ -227,7 +227,7 @@ function buildServer(): McpServer {
     'cmd_get_agent_capabilities',
     {
       description:
-        'Get the capability record for one agent: skills, tools, MCP, routing weights. Source of truth is the agent.config.json on disk.',
+        'Get the capability record for one agent: skills, tools, MCP, routing weights. Source of truth is the agent.md frontmatter in each agents/<name>/ directory; the DB is a startup-seeded cache that is overwritten on restart.',
       inputSchema: refreshable({
         id: z.string().describe('Agent id (e.g. "coding", "research", "data")'),
       }),
